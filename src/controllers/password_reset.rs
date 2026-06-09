@@ -13,6 +13,11 @@
 //!   `PasswordReset::complete`. An invalid or expired token re-renders the form
 //!   with a `token` validation error rather than dumping a raw failure.
 //!
+//! Validation runs through `controllers::inertia_form`: an `X-Inertia`
+//! submission that fails re-renders the originating page with a flat
+//! `errors` prop, while non-Inertia clients get the Laravel-style 422
+//! `{ message, errors }` envelope.
+//!
 //! Tokens are minted/consumed through the provider-agnostic `PasswordReset`
 //! facade, which drives the address lookup + password write through the
 //! `EloquentUserProvider<User>` registered in `bootstrap::register()`.
@@ -20,9 +25,11 @@
 use serde::Deserialize;
 use suprnova::auth_flows::PasswordReset;
 use suprnova::{
-    handler, inertia_response, redirect, FormRequest, FrameworkError, InertiaProps, Request,
-    Response, Validate, ValidationErrors,
+    handler, inertia_response, redirect, FormRequest, InertiaProps, Request, Response, Validate,
+    ValidationErrors,
 };
+
+use crate::controllers::{errors_json, inertia_form, validation_failure, FormFailure, InertiaCtx};
 
 /// Base URL the reset token is appended to. `PasswordReset` builds
 /// `{base}?token=…`, which must resolve to the `show_reset` handler below.
@@ -84,7 +91,22 @@ pub async fn show_request(req: Request) -> Response {
 /// the address is registered. `send_link` mails only when the address resolves
 /// but returns `Ok` either way, so the 302-back response is indistinguishable.
 #[handler]
-pub async fn send_link(form: SendLinkRequest) -> Response {
+pub async fn send_link(req: Request) -> Response {
+    let ctx = InertiaCtx::of(&req);
+    let form = match inertia_form::<SendLinkRequest>(req).await {
+        Ok(form) => form,
+        Err(FormFailure::Invalid(_, errors)) => {
+            return if ctx.wants_inertia() {
+                inertia_response!(&ctx, "auth/ForgotPassword", {
+                    "errors": errors_json(&errors),
+                })
+            } else {
+                Err(validation_failure(errors))
+            };
+        }
+        Err(FormFailure::Response(resp)) => return Err(*resp),
+    };
+
     PasswordReset::send_link(&form.email, &reset_base()).await?;
     redirect!("/forgot-password").into()
 }
@@ -100,15 +122,37 @@ pub async fn show_reset(req: Request) -> Response {
     inertia_response!(&req, "auth/ResetPassword", ResetPasswordProps { token })
 }
 
+/// Deliver reset-password validation errors: re-render the form (with the
+/// submitted token threaded back so the user can correct and resubmit) for
+/// Inertia submissions, 422 envelope for everything else.
+async fn render_reset(ctx: &InertiaCtx, token: &str, errors: ValidationErrors) -> Response {
+    if ctx.wants_inertia() {
+        inertia_response!(ctx, "auth/ResetPassword", {
+            "token": token,
+            "errors": errors_json(&errors),
+        })
+    } else {
+        Err(validation_failure(errors))
+    }
+}
+
 /// `POST /reset-password` — consume the token and set the new password.
 ///
 /// On success, 302 to `/login` so the user signs in with the new credentials,
 /// flashing a success message that the login landing surfaces via the page
 /// object's `flash.success`. An invalid/expired/consumed token re-renders the
-/// form with a `token` validation error (a standard 422) instead of a raw
-/// failure.
+/// form with a `token` validation error instead of a raw failure.
 #[handler]
-pub async fn reset(form: ResetRequest) -> Response {
+pub async fn reset(req: Request) -> Response {
+    let ctx = InertiaCtx::of(&req);
+    let form = match inertia_form::<ResetRequest>(req).await {
+        Ok(form) => form,
+        Err(FormFailure::Invalid(form, errors)) => {
+            return render_reset(&ctx, &form.token, errors).await;
+        }
+        Err(FormFailure::Response(resp)) => return Err(*resp),
+    };
+
     match PasswordReset::complete(&form.token, &form.password).await {
         Ok(_user_id) => redirect!("/login")
             .with(
@@ -117,9 +161,9 @@ pub async fn reset(form: ResetRequest) -> Response {
             )
             .into(),
         Err(_) => {
-            let mut errs = ValidationErrors::new();
-            errs.add("token", "This password reset link is invalid or has expired.");
-            Err(FrameworkError::Validation(errs).into())
+            let mut errors = ValidationErrors::new();
+            errors.add("token", "This password reset link is invalid or has expired.");
+            render_reset(&ctx, &form.token, errors).await
         }
     }
 }

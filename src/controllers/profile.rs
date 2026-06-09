@@ -11,13 +11,14 @@
 //!   the verification timestamp and re-sends the verification link
 //!   (best-effort — a mail failure must not 500 the update).
 //! - `PUT    /profile/password` — rotate the password, gated on the current
-//!   password (a wrong current password is a 422 on `current_password`).
+//!   password.
 //! - `DELETE /profile`          — password-gated account deletion: verify the
 //!   password, log out, then delete the row.
 //!
-//! Validation rides the standard `FormRequest` path (per-field rules + a
-//! cross-field `after_validation`), so failures surface as a Laravel-style 422
-//! `{ message, errors }` envelope the Inertia client merges onto the page.
+//! Validation runs through `controllers::inertia_form`: an `X-Inertia`
+//! submission that fails re-renders the Profile page with a flat `errors`
+//! prop the client merges into `form.errors`, while non-Inertia clients get
+//! the Laravel-style 422 `{ message, errors }` envelope.
 
 use serde::Deserialize;
 use suprnova::auth_flows::EmailVerification;
@@ -27,6 +28,7 @@ use suprnova::{
     ValidationErrors,
 };
 
+use crate::controllers::{errors_json, inertia_form, validation_failure, FormFailure, InertiaCtx};
 use crate::models::user::User;
 
 // ============================================================================
@@ -59,6 +61,7 @@ pub struct UpdatePasswordRequest {
     pub current_password: String,
     #[validate(length(min = 8, message = "Password must be at least 8 characters."))]
     pub password: String,
+    #[validate(length(min = 1, message = "Confirm your new password."))]
     pub password_confirmation: String,
 }
 
@@ -76,14 +79,15 @@ impl FormRequest for UpdatePasswordRequest {
     }
 }
 
-/// The delete body carries only the confirming password. It is read straight
-/// off the request (not a `FormRequest`) because there is nothing to validate
-/// up front — the password is checked against the stored hash below, and a
-/// mismatch is a 422 rather than a field-shape error.
-#[derive(Deserialize)]
+/// The delete body carries only the confirming password. There are no shape
+/// rules — the password is checked against the stored hash in the handler,
+/// and a mismatch surfaces on the `password` field.
+#[derive(Deserialize, Validate)]
 pub struct DeleteAccountRequest {
     pub password: String,
 }
+
+impl FormRequest for DeleteAccountRequest {}
 
 // ============================================================================
 // Helpers
@@ -96,6 +100,23 @@ async fn current_user() -> Result<User, FrameworkError> {
     Auth::user_as::<User>()
         .await?
         .ok_or(FrameworkError::Unauthorized)
+}
+
+/// Deliver profile validation errors: re-render the Profile page (seeded
+/// from the current user, plus the `errors` prop) for Inertia submissions,
+/// 422 envelope for everything else.
+async fn render_profile(ctx: &InertiaCtx, errors: ValidationErrors) -> Response {
+    if ctx.wants_inertia() {
+        let user = current_user().await?;
+        inertia_response!(ctx, "Profile", {
+            "name": user.name,
+            "email": user.email,
+            "email_verified": user.is_email_verified(),
+            "errors": errors_json(&errors),
+        })
+    } else {
+        Err(validation_failure(errors))
+    }
 }
 
 // ============================================================================
@@ -126,21 +147,28 @@ pub async fn show(req: Request) -> Response {
 /// than 500-ing the update. The user lands back on `/profile` showing
 /// "not verified" and can resend from the verification notice.
 #[handler]
-pub async fn update(form: UpdateProfileRequest) -> Response {
+pub async fn update(req: Request) -> Response {
+    let ctx = InertiaCtx::of(&req);
+    let form = match inertia_form::<UpdateProfileRequest>(req).await {
+        Ok(form) => form,
+        Err(FormFailure::Invalid(_, errors)) => return render_profile(&ctx, errors).await,
+        Err(FormFailure::Response(resp)) => return Err(*resp),
+    };
+
     let mut user = current_user().await?;
     let email_changed = user.email != form.email;
 
     // Guard the `users.email` unique constraint: if the new address belongs to
-    // a *different* account, surface a 422 on `email` rather than letting the
-    // insert/update hit the DB constraint and 500. Re-submitting the same
+    // a *different* account, surface the error on `email` rather than letting
+    // the insert/update hit the DB constraint and 500. Re-submitting the same
     // address (email unchanged) is fine and skips the lookup.
     if email_changed
         && let Some(existing) = User::find_by_email(&form.email).await?
         && existing.id != user.id
     {
-        let mut errs = ValidationErrors::new();
-        errs.add("email", "This email is already registered.");
-        return Err(FrameworkError::Validation(errs).into());
+        let mut errors = ValidationErrors::new();
+        errors.add("email", "This email is already registered.");
+        return render_profile(&ctx, errors).await;
     }
 
     user.name = form.name;
@@ -162,17 +190,24 @@ pub async fn update(form: UpdateProfileRequest) -> Response {
 
 /// `PUT /profile/password` — rotate the password.
 ///
-/// Gated on the current password: a wrong `current_password` is a 422 pinned
-/// to that field rather than a silent failure. On success the new (hashed)
+/// Gated on the current password: a wrong `current_password` surfaces on
+/// that field rather than failing silently. On success the new (hashed)
 /// password is persisted through `set_password_hash` + `save`.
 #[handler]
-pub async fn update_password(form: UpdatePasswordRequest) -> Response {
+pub async fn update_password(req: Request) -> Response {
+    let ctx = InertiaCtx::of(&req);
+    let form = match inertia_form::<UpdatePasswordRequest>(req).await {
+        Ok(form) => form,
+        Err(FormFailure::Invalid(_, errors)) => return render_profile(&ctx, errors).await,
+        Err(FormFailure::Response(resp)) => return Err(*resp),
+    };
+
     let mut user = current_user().await?;
 
     if !user.verify_password(&form.current_password)? {
-        let mut errs = ValidationErrors::new();
-        errs.add("current_password", "The current password is incorrect.");
-        return Err(FrameworkError::Validation(errs).into());
+        let mut errors = ValidationErrors::new();
+        errors.add("current_password", "The current password is incorrect.");
+        return render_profile(&ctx, errors).await;
     }
 
     user.set_password_hash(&hashing::hash(&form.password)?);
@@ -183,23 +218,26 @@ pub async fn update_password(form: UpdatePasswordRequest) -> Response {
 
 /// `DELETE /profile` — password-gated account deletion.
 ///
-/// Verify the confirming password (wrong → 422 on `password`), then log the
-/// session out and delete the user row. Deletion happens last so an
+/// Verify the confirming password (wrong → error on `password`), then log
+/// the session out and delete the user row. Deletion happens last so an
 /// already-logged-out-then-failed-delete can't leave a ghost session pointing
 /// at a live account; if the delete fails the user is logged out and re-auth
 /// is required, which is the safe direction.
 #[handler]
 pub async fn destroy(req: Request) -> Response {
-    // `input()` dispatches on Content-Type (JSON or form-urlencoded), matching
-    // the body shape the Inertia client sends — `delete('/profile', { password })`
-    // posts `application/json` by default, which `form()` alone would reject.
-    let form: DeleteAccountRequest = req.input().await?;
+    let ctx = InertiaCtx::of(&req);
+    let form = match inertia_form::<DeleteAccountRequest>(req).await {
+        Ok(form) => form,
+        Err(FormFailure::Invalid(_, errors)) => return render_profile(&ctx, errors).await,
+        Err(FormFailure::Response(resp)) => return Err(*resp),
+    };
+
     let user = current_user().await?;
 
     if !user.verify_password(&form.password)? {
-        let mut errs = ValidationErrors::new();
-        errs.add("password", "The password is incorrect.");
-        return Err(FrameworkError::Validation(errs).into());
+        let mut errors = ValidationErrors::new();
+        errors.add("password", "The password is incorrect.");
+        return render_profile(&ctx, errors).await;
     }
 
     Auth::logout().await?;

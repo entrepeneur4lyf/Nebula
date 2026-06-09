@@ -1,32 +1,14 @@
 import './app.css'
-import { createInertiaApp, router, type ResolvedComponent } from '@inertiajs/svelte'
+import { createInertiaApp, type ResolvedComponent } from '@inertiajs/svelte'
 import { hydrate, mount } from 'svelte'
 import Layout from './lib/Layout.svelte'
 
-// Forward the session's CSRF token on every mutating Inertia visit.
-// Suprnova rotates the token on login/logout, so read it fresh per request:
-// prefer the live XSRF-TOKEN cookie (set by the CSRF middleware and accepted
-// back as X-XSRF-TOKEN), falling back to the <meta name="csrf-token"> tag the
-// server template rendered with the page.
-function csrfToken(): string | undefined {
-  const cookie = document.cookie
-    .split('; ')
-    .find((entry) => entry.startsWith('XSRF-TOKEN='))
-  if (cookie) {
-    return decodeURIComponent(cookie.slice('XSRF-TOKEN='.length))
-  }
-  const meta = document.querySelector('meta[name="csrf-token"]')
-  return meta?.getAttribute('content') ?? undefined
-}
-
-router.on('before', (event) => {
-  const { method, headers } = event.detail.visit
-  // Inertia's Method type is get/post/put/patch/delete; only the
-  // mutating methods need the token.
-  if (method === 'get') return
-  const token = csrfToken()
-  if (token) headers['X-XSRF-TOKEN'] = token
-})
+// CSRF: no manual wiring needed. Inertia v3's HTTP client reads the live
+// `XSRF-TOKEN` cookie (set by Suprnova's CsrfMiddleware, rotated on
+// login/logout) and echoes it as `X-XSRF-TOKEN` on every request itself.
+// Do NOT add a `router.on('before')` hook that sets the header too —
+// XMLHttpRequest *combines* duplicate headers into "token, token", which
+// the server rejects as a mismatch (419) on every form submit.
 
 createInertiaApp({
   resolve: (name) => {

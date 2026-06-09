@@ -54,7 +54,8 @@ use suprnova::auth::AuthConfig;
 use suprnova::mail::{Mail, MailFake};
 use suprnova::{
     handle_request, App, Auth, AuthManager, CsrfMiddleware, EloquentUserProvider,
-    IncludeMiddleware, MiddlewareRegistry, MustVerifyEmail, SessionConfig, SessionMiddleware,
+    IncludeMiddleware, Inertia303Middleware, MiddlewareRegistry, MustVerifyEmail, SessionConfig,
+    SessionMiddleware,
 };
 
 use nebula::middleware::LoggingMiddleware;
@@ -110,6 +111,12 @@ async fn setup() -> Harness {
     Auth::register_provider("users", Arc::new(EloquentUserProvider::<User>::new()))
         .expect("register users provider");
 
+    // Mirror bootstrap's `App::register_inertia_shared(Arc::new(AuthShare))`
+    // so authenticated page renders carry the shared `auth.user` prop here
+    // too. Re-registering across tests is fine — the provider slot is a
+    // replace-on-write.
+    App::register_inertia_shared(Arc::new(nebula::bootstrap::AuthShare));
+
     Harness {
         _lock: lock,
         server: None,
@@ -129,7 +136,12 @@ impl Harness {
                 .append(LoggingMiddleware)
                 .append(SessionMiddleware::new(SessionConfig::from_env()))
                 .append(CsrfMiddleware::new())
-                .append(IncludeMiddleware),
+                .append(IncludeMiddleware)
+                // Mirrors bootstrap's `Inertia::install`: upgrade Inertia
+                // PUT/PATCH/DELETE 302s to 303 so browsers don't replay the
+                // verb against the redirect target. (The version middleware
+                // is omitted — these tests never send `X-Inertia-Version`.)
+                .append(Inertia303Middleware::new()),
         );
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -202,26 +214,45 @@ impl Client {
     }
 
     async fn get(&mut self, path: &str) -> Resp {
-        self.request("GET", path, None).await
+        self.request("GET", path, None, false).await
     }
 
     async fn post_json(&mut self, path: &str, body: Value) -> Resp {
-        self.request("POST", path, Some(body)).await
+        self.request("POST", path, Some(body), false).await
+    }
+
+    /// Same as [`post_json`](Self::post_json) but flagged as an Inertia
+    /// visit (`X-Inertia: true`) — what `useForm().post` sends from the
+    /// browser. Validation failures answer these with a page re-render
+    /// carrying an `errors` prop instead of the 422 envelope.
+    async fn inertia_post_json(&mut self, path: &str, body: Value) -> Resp {
+        self.request("POST", path, Some(body), true).await
     }
 
     async fn patch_json(&mut self, path: &str, body: Value) -> Resp {
-        self.request("PATCH", path, Some(body)).await
+        self.request("PATCH", path, Some(body), false).await
     }
 
     async fn put_json(&mut self, path: &str, body: Value) -> Resp {
-        self.request("PUT", path, Some(body)).await
+        self.request("PUT", path, Some(body), false).await
+    }
+
+    /// Inertia-flagged PUT — see [`inertia_post_json`](Self::inertia_post_json).
+    async fn inertia_put_json(&mut self, path: &str, body: Value) -> Resp {
+        self.request("PUT", path, Some(body), true).await
     }
 
     async fn delete_json(&mut self, path: &str, body: Value) -> Resp {
-        self.request("DELETE", path, Some(body)).await
+        self.request("DELETE", path, Some(body), false).await
     }
 
-    async fn request(&mut self, method: &str, path: &str, body: Option<Value>) -> Resp {
+    async fn request(
+        &mut self,
+        method: &str,
+        path: &str,
+        body: Option<Value>,
+        inertia: bool,
+    ) -> Resp {
         let stream = tokio::net::TcpStream::connect(self.addr)
             .await
             .expect("connect to test server");
@@ -244,6 +275,9 @@ impl Client {
             .header("Content-Length", payload.len().to_string());
         if !payload.is_empty() {
             builder = builder.header("Content-Type", "application/json");
+        }
+        if inertia {
+            builder = builder.header("X-Inertia", "true");
         }
         if !self.cookies.is_empty() {
             let jar = self
@@ -738,7 +772,126 @@ async fn login_success_redirects_to_literal_dashboard() {
 }
 
 // ============================================================================
-// 6. Branding statics: the favicon set + webmanifest resolve at the web root
+// 6. Inertia form contract: validation failures re-render the page with a
+//    flat `errors` prop (the 422 envelope is API-client-only), unsafe-verb
+//    success redirects are upgraded to 303, and the shared `auth.user` prop
+//    rides authenticated page renders.
+// ============================================================================
+
+#[tokio::test]
+async fn inertia_submissions_render_errors_and_303_redirects() {
+    let mut harness = setup().await;
+    let addr = harness.spawn_app().await;
+    let mut client = Client::new(addr);
+
+    let mut user = User::create("Inertia User", "inertia@x.com", "supersecret")
+        .await
+        .expect("create user");
+    mark_verified(&mut user).await;
+
+    let resp = client.get("/login").await;
+    assert_eq!(resp.status, 200);
+
+    // Inertia submission + bad credentials → NOT the 422 envelope (which the
+    // Inertia client can only display as a raw-JSON error modal) but a
+    // re-render of the login page whose flat `errors` prop carries the
+    // field message for `useForm().errors`.
+    let resp = client
+        .inertia_post_json(
+            "/login",
+            json!({ "email": "inertia@x.com", "password": "wrong" }),
+        )
+        .await;
+    assert_eq!(
+        resp.status, 200,
+        "an Inertia validation failure re-renders the page: {}",
+        resp.body
+    );
+    let page: Value = serde_json::from_str(&resp.body).expect("an Inertia page object");
+    assert_eq!(page["component"], "auth/Login", "page: {}", resp.body);
+    assert_eq!(
+        page["props"]["errors"]["email"][0],
+        "These credentials do not match our records.",
+        "flat field->messages errors prop: {}",
+        resp.body
+    );
+
+    // The same submission without the X-Inertia flag keeps the API envelope.
+    let resp = client
+        .post_json(
+            "/login",
+            json!({ "email": "inertia@x.com", "password": "wrong" }),
+        )
+        .await;
+    assert_eq!(resp.status, 422, "non-Inertia clients keep the 422 envelope");
+
+    // A successful Inertia POST keeps the browser-default 302 (the 303
+    // upgrade is scoped to the verbs a browser would otherwise replay).
+    let resp = client
+        .inertia_post_json(
+            "/login",
+            json!({ "email": "inertia@x.com", "password": "supersecret" }),
+        )
+        .await;
+    assert_eq!(resp.status, 302, "Inertia POST login: {}", resp.body);
+    assert_eq!(resp.location(), "/dashboard");
+
+    // The shared `auth.user` prop (AuthShare in bootstrap.rs) rides every
+    // page render once authenticated — it is what the layout's user menu
+    // and Dashboard nav link key off.
+    let resp = client.get("/dashboard").await;
+    assert_eq!(resp.status, 200);
+    assert!(
+        resp.body.contains("inertia@x.com"),
+        "the shared auth.user prop must ride the dashboard render: {}",
+        resp.body
+    );
+
+    // An Inertia PUT that redirects is upgraded 302 → 303 so the browser
+    // follows with GET instead of replaying the PUT against the target
+    // (which loops until the 20-redirect cap without the middleware).
+    let resp = client
+        .inertia_put_json(
+            "/profile/password",
+            json!({
+                "current_password": "supersecret",
+                "password": "evenmoresecret1!",
+                "password_confirmation": "evenmoresecret1!",
+            }),
+        )
+        .await;
+    assert_eq!(
+        resp.status, 303,
+        "Inertia PUT redirects must be 303: {}",
+        resp.body
+    );
+    assert_eq!(resp.location(), "/profile");
+
+    // And a failing Inertia PUT re-renders the Profile page with the field
+    // error — wrong current password pins `current_password`.
+    let resp = client
+        .inertia_put_json(
+            "/profile/password",
+            json!({
+                "current_password": "not-the-password",
+                "password": "anothernew1!",
+                "password_confirmation": "anothernew1!",
+            }),
+        )
+        .await;
+    assert_eq!(resp.status, 200, "Inertia failure re-renders: {}", resp.body);
+    let page: Value = serde_json::from_str(&resp.body).expect("an Inertia page object");
+    assert_eq!(page["component"], "Profile", "page: {}", resp.body);
+    assert_eq!(
+        page["props"]["errors"]["current_password"][0],
+        "The current password is incorrect.",
+        "errors prop pins the field: {}",
+        resp.body
+    );
+}
+
+// ============================================================================
+// 7. Branding statics: the favicon set + webmanifest resolve at the web root
 // ============================================================================
 
 /// The framework server has no static-file handler, so the kit serves its

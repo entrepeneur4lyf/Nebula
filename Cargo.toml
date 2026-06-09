@@ -1,0 +1,31 @@
+[package]
+name = "nebula"
+version = "0.1.0"
+edition = "2024"
+description = "A starter kit for Suprnova"
+authors = ["entrepeneur4lyf <shawn.payments@gmail.com>"]
+
+[[bin]]
+name = "nebula"
+path = "cmd/main.rs"
+
+# Per-project console binary — runtime command dispatch (db:seed,
+# user-defined `#[command]` async fns, etc.). Same crate, different
+# `fn main` because console commands exit when their handler returns
+# whereas the server binary loops forever.
+[[bin]]
+name = "console"
+path = "src/bin/console.rs"
+
+[dependencies]
+suprnova = { git = "https://github.com/entrepeneur4lyf/suprnova.git" }
+tokio = { version = "1", features = ["full"] }
+sea-orm-migration = { version = "1.0", features = ["sqlx-sqlite", "sqlx-postgres", "runtime-tokio-native-tls"] }
+sea-orm = { version = "1.0", features = ["sqlx-sqlite", "sqlx-postgres", "runtime-tokio-native-tls", "macros"] }
+serde = { version = "1.0", features = ["derive"] }
+async-trait = "0.1"
+dotenvy = "0.15"
+clap = { version = "4", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }
+validator = { version = "0.20", features = ["derive"] }
+tracing = "0.1"

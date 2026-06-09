@@ -760,6 +760,13 @@ async fn branding_statics_resolve_at_web_root() {
         Some("image/x-icon")
     );
     assert!(!icon.body.is_empty(), "favicon body must not be empty");
+    let icon_len: usize = icon
+        .headers
+        .get("content-length")
+        .expect("favicon response carries Content-Length")
+        .parse()
+        .expect("favicon Content-Length parses as usize");
+    assert!(icon_len > 0, "favicon Content-Length must be non-zero");
 
     let png = client.get("/favicon-32x32.png").await;
     assert_eq!(png.status, 200, "GET /favicon-32x32.png must serve");
@@ -772,6 +779,13 @@ async fn branding_statics_resolve_at_web_root() {
         Some("public, max-age=86400"),
         "statics carry a day-long cache"
     );
+    let png_len: usize = png
+        .headers
+        .get("content-length")
+        .expect("png response carries Content-Length")
+        .parse()
+        .expect("png Content-Length parses as usize");
+    assert!(png_len > 0, "png Content-Length must be non-zero");
 
     let manifest = client.get("/site.webmanifest").await;
     assert_eq!(manifest.status, 200, "GET /site.webmanifest must serve");

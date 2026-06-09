@@ -4,14 +4,9 @@
   import { ModeWatcher } from 'mode-watcher'
   import { Alert, Button, DropdownMenu, ThemeModeButton } from 'sv5ui'
   import type { DropdownMenuItem } from 'sv5ui'
+  import type { AuthUser } from '../types/auth'
 
   let { children }: { children: Snippet } = $props()
-
-  interface AuthUser {
-    id: number
-    name: string
-    email: string
-  }
 
   // `page` in @inertiajs/svelte 3 is a $state-backed reactive object (not a
   // store), so plain property access stays reactive across visits.

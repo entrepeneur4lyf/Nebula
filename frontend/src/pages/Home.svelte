@@ -1,14 +1,9 @@
 <script lang="ts">
   import { Link, page } from '@inertiajs/svelte'
   import type { HomeProps } from '../types/inertia-props'
+  import type { AuthUser } from '../types/auth'
 
   let { title, message }: HomeProps = $props()
-
-  interface AuthUser {
-    id: number
-    name: string
-    email: string
-  }
 
   // Same auth-prop read as Layout: `page` is a $state-backed reactive object
   // in @inertiajs/svelte 3, so plain property access stays reactive.
@@ -16,6 +11,10 @@
     (page.props.auth as { user?: AuthUser | null } | undefined)?.user ?? null,
   )
 </script>
+
+<svelte:head>
+  <title>Welcome — Nebula</title>
+</svelte:head>
 
 <div
   class="mx-auto flex w-full max-w-2xl flex-col items-center px-4 py-16 text-center sm:py-24"

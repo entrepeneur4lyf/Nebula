@@ -7,9 +7,9 @@ export default defineConfig({
   plugins: [tailwindcss(), svelte()],
   resolve: {
     alias: {
-      // sv5ui's barrel reaches its SvelteKit-only Link ($app/state). We never
-      // use that component (Inertia <Link> owns navigation), but the import
-      // must resolve — see src/lib/sveltekit-app-stub.ts.
+      // sv5ui's barrel reaches its SvelteKit-only Link ($app/state) for import
+      // resolution. The stub alias resolves the module; nothing imports Link so
+      // it remains inert in the bundle (Inertia <Link> owns navigation).
       '$app/state': fileURLToPath(
         new URL('./src/lib/sveltekit-app-stub.ts', import.meta.url),
       ),

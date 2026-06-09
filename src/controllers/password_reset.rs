@@ -100,13 +100,20 @@ pub async fn show_reset(req: Request) -> Response {
 
 /// `POST /reset-password` — consume the token and set the new password.
 ///
-/// On success, 302 to `/login` so the user signs in with the new credentials.
-/// An invalid/expired/consumed token re-renders the form with a `token`
-/// validation error (a standard 422) instead of a raw failure.
+/// On success, 302 to `/login` so the user signs in with the new credentials,
+/// flashing a success message that the login landing surfaces via the page
+/// object's `flash.success`. An invalid/expired/consumed token re-renders the
+/// form with a `token` validation error (a standard 422) instead of a raw
+/// failure.
 #[handler]
 pub async fn reset(form: ResetRequest) -> Response {
     match PasswordReset::complete(&form.token, &form.password).await {
-        Ok(_user_id) => redirect!("/login").into(),
+        Ok(_user_id) => redirect!("/login")
+            .with(
+                "success",
+                "Your password has been reset. Log in with your new password.",
+            )
+            .into(),
         Err(_) => {
             let mut errs = ValidationErrors::new();
             errs.add("token", "This password reset link is invalid or has expired.");

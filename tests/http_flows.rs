@@ -514,6 +514,28 @@ async fn password_reset_over_http_with_anti_enumeration() {
     assert_eq!(resp.status, 302, "reset must redirect: {}", resp.body);
     assert_eq!(resp.location(), "/login");
 
+    // The success flash survives the redirect: the /login landing's page
+    // object (embedded as JSON in the data-page script tag) carries it
+    // under `flash.success`.
+    let resp = client.get("/login").await;
+    assert_eq!(resp.status, 200, "GET /login must render after reset");
+    assert!(
+        resp.body.contains(
+            r#""flash":{"success":"Your password has been reset. Log in with your new password."}"#
+        ),
+        "login landing must carry the success flash in its page object: {}",
+        resp.body
+    );
+
+    // Flash is one-shot: a second visit no longer carries it.
+    let resp = client.get("/login").await;
+    assert_eq!(resp.status, 200, "second GET /login must render");
+    assert!(
+        !resp.body.contains("Your password has been reset."),
+        "success flash must not survive a second request: {}",
+        resp.body
+    );
+
     // The old password no longer logs in…
     let resp = client
         .post_json(

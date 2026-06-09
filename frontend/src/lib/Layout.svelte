@@ -19,8 +19,10 @@
     (page.props.auth as { user?: AuthUser | null } | undefined)?.user ?? null,
   )
 
+  // Inertia v3 carries one-shot flash data on the page object itself
+  // (`page.flash`), not inside `props`.
   const flash = $derived(
-    (page.props.flash as Record<string, unknown> | undefined) ?? {},
+    (page.flash as Record<string, unknown> | undefined) ?? {},
   )
   const flashSuccess = $derived(
     typeof flash.success === 'string' ? flash.success : null,

@@ -120,8 +120,20 @@ pub async fn register(form: RegisterRequest) -> Response {
     }
 
     let user = User::create(&form.name, &form.email, &form.password).await?;
+    let user = Arc::new(user);
     // Log the freshly-created user into the session (fires the Login event).
-    Auth::login(Arc::new(user), false).await?;
+    Auth::login(user.clone(), false).await?;
+
+    // Send the verification link to the new account. The user implements
+    // `MustVerifyEmail`, so the provider-agnostic facade mints a token and
+    // mails `{APP_URL}/verify-email/verify?token=…`. Registration leaves the
+    // user logged-in-but-unverified; the `verified` gate on `/dashboard`
+    // routes them to `/verify-email` until they click the link.
+    let base = format!(
+        "{}/verify-email/verify",
+        std::env::var("APP_URL").unwrap_or_else(|_| "http://localhost:8765".into())
+    );
+    suprnova::auth_flows::EmailVerification::send_link(user.as_ref(), &base).await?;
 
     redirect!("/dashboard").into()
 }

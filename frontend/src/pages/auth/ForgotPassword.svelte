@@ -2,8 +2,6 @@
   import { Link, useForm } from '@inertiajs/svelte'
   import { Alert, Button, Card, FormField, Input } from 'sv5ui'
 
-  let { errors }: { errors?: Record<string, string[]> | null } = $props()
-
   const form = useForm({
     email: '',
   })
@@ -26,7 +24,7 @@
     {/snippet}
 
     <div class="space-y-5">
-      {#if form.recentlySuccessful}
+      {#if form.wasSuccessful}
         <Alert
           color="success"
           variant="soft"
@@ -41,7 +39,7 @@
           name="email"
           label="Email address"
           required
-          error={errors?.email?.[0]}
+          error={form.errors.email?.[0]}
         >
           <Input
             type="email"

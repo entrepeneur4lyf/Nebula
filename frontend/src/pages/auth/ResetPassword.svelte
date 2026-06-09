@@ -3,10 +3,7 @@
   import { Link, useForm } from '@inertiajs/svelte'
   import { Alert, Button, Card, FormField, Input } from 'sv5ui'
 
-  let {
-    token,
-    errors,
-  }: { token: string; errors?: Record<string, string[]> | null } = $props()
+  let { token }: { token: string } = $props()
 
   // The reset token is fixed for the life of this page (it comes from the
   // one-shot emailed link), so seed the form with its initial value. `untrack`
@@ -33,12 +30,12 @@
     {/snippet}
 
     <div class="space-y-5">
-      {#if errors?.token}
+      {#if form.errors.token?.[0]}
         <Alert
           color="error"
           variant="soft"
           icon="lucide:link-2-off"
-          title={errors.token[0]}
+          title={form.errors.token[0]}
         />
       {/if}
 
@@ -48,7 +45,7 @@
           label="New password"
           required
           help="At least 8 characters."
-          error={errors?.password?.[0]}
+          error={form.errors.password?.[0]}
         >
           <Input
             type="password"
@@ -62,7 +59,7 @@
           name="password_confirmation"
           label="Confirm new password"
           required
-          error={errors?.password_confirmation?.[0]}
+          error={form.errors.password_confirmation?.[0]}
         >
           <Input
             type="password"

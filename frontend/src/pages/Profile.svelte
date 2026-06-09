@@ -3,11 +3,10 @@
   import { useForm } from '@inertiajs/svelte'
   import { Badge, Button, Card, FormField, Input, Modal } from 'sv5ui'
 
-  let { name, email, email_verified, errors }: {
+  let { name, email, email_verified }: {
     name: string
     email: string
     email_verified: boolean
-    errors?: Record<string, string[]> | null
   } = $props()
 
   // Seed the profile form from the server-provided values. They're the
@@ -50,6 +49,7 @@
   function closeConfirm() {
     confirmingDeletion = false
     deleteForm.reset()
+    deleteForm.clearErrors()
   }
 </script>
 
@@ -71,8 +71,18 @@
       </p>
     {/snippet}
 
+    <!--
+      Each card reads its own `form.errors` (populated only when that form
+      submitted) rather than the shared `errors` page prop, so a 422 from one
+      action never bleeds into another card's fields.
+    -->
     <form class="space-y-5" onsubmit={submitProfile}>
-      <FormField name="name" label="Name" required error={errors?.name?.[0]}>
+      <FormField
+        name="name"
+        label="Name"
+        required
+        error={profileForm.errors.name?.[0]}
+      >
         <Input
           type="text"
           autocomplete="name"
@@ -86,7 +96,7 @@
         label="Email address"
         required
         help="Changing your email requires verifying the new address."
-        error={errors?.email?.[0]}
+        error={profileForm.errors.email?.[0]}
       >
         <Input
           type="email"
@@ -96,7 +106,12 @@
         />
       </FormField>
 
-      <Button type="submit" label="Save" loading={profileForm.processing} />
+      <div class="flex items-center gap-3">
+        <Button type="submit" label="Save" loading={profileForm.processing} />
+        {#if profileForm.recentlySuccessful}
+          <span class="text-sm text-on-surface-variant">Saved.</span>
+        {/if}
+      </div>
     </form>
   </Card>
 
@@ -113,7 +128,7 @@
         name="current_password"
         label="Current password"
         required
-        error={errors?.current_password?.[0]}
+        error={passwordForm.errors.current_password?.[0]}
       >
         <Input
           type="password"
@@ -128,7 +143,7 @@
         label="New password"
         required
         help="At least 8 characters."
-        error={errors?.password?.[0]}
+        error={passwordForm.errors.password?.[0]}
       >
         <Input
           type="password"
@@ -142,7 +157,7 @@
         name="password_confirmation"
         label="Confirm new password"
         required
-        error={errors?.password_confirmation?.[0]}
+        error={passwordForm.errors.password_confirmation?.[0]}
       >
         <Input
           type="password"
@@ -152,11 +167,16 @@
         />
       </FormField>
 
-      <Button
-        type="submit"
-        label="Update password"
-        loading={passwordForm.processing}
-      />
+      <div class="flex items-center gap-3">
+        <Button
+          type="submit"
+          label="Update password"
+          loading={passwordForm.processing}
+        />
+        {#if passwordForm.recentlySuccessful}
+          <span class="text-sm text-on-surface-variant">Password updated.</span>
+        {/if}
+      </div>
     </form>
   </Card>
 
@@ -181,7 +201,10 @@
   title="Delete account"
   description="This action cannot be undone. Enter your password to confirm you want to permanently delete your account."
   onOpenChange={(open) => {
-    if (!open) deleteForm.reset()
+    if (!open) {
+      deleteForm.reset()
+      deleteForm.clearErrors()
+    }
   }}
 >
   {#snippet body()}
@@ -190,7 +213,7 @@
         name="password"
         label="Password"
         required
-        error={errors?.password?.[0]}
+        error={deleteForm.errors.password?.[0]}
       >
         <Input
           type="password"

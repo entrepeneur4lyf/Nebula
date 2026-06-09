@@ -1,9 +1,6 @@
 <script lang="ts">
   import { Link, useForm } from '@inertiajs/svelte'
   import { Button, Card, Checkbox, FormField, Input } from 'sv5ui'
-  import type { LoginProps } from '../../types/inertia-props'
-
-  let { errors }: LoginProps = $props()
 
   const form = useForm({
     email: '',
@@ -31,7 +28,7 @@
         name="email"
         label="Email address"
         required
-        error={errors?.email?.[0]}
+        error={form.errors.email?.[0]}
       >
         <Input
           type="email"
@@ -46,7 +43,7 @@
         name="password"
         label="Password"
         required
-        error={errors?.password?.[0]}
+        error={form.errors.password?.[0]}
       >
         <Input
           type="password"

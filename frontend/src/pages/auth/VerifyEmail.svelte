@@ -3,24 +3,16 @@
   import { Alert, Button, Card, Icon } from 'sv5ui'
 
   // `status` is set by the server: `"invalid-or-expired"` when a bad token
-  // landed on the verify route; `"verification-link-sent"` / `"email-verified"`
-  // ride the same prop for the resend and success flows.
+  // landed on the verify route, `null` otherwise. A successful verify
+  // redirects to the dashboard and a successful resend redirects back here
+  // without a status key, so the "link sent" confirmation keys off the
+  // resend form's own success state instead.
   let { status }: { status: string | null } = $props()
 
   const statusAlerts: Record<
     string,
     { color: 'success' | 'error'; icon: string; title: string }
   > = {
-    'verification-link-sent': {
-      color: 'success',
-      icon: 'lucide:mail-check',
-      title: 'A fresh verification link has been sent to your email address.',
-    },
-    'email-verified': {
-      color: 'success',
-      icon: 'lucide:badge-check',
-      title: 'Your email address has been verified.',
-    },
     'invalid-or-expired': {
       color: 'error',
       icon: 'lucide:link-2-off',
@@ -36,7 +28,9 @@
 
   function resend(e: SubmitEvent) {
     e.preventDefault()
-    resendForm.post('/email/verification-notification')
+    resendForm.post('/email/verification-notification', {
+      preserveState: true,
+    })
   }
 
   function logout(e: SubmitEvent) {
@@ -64,7 +58,15 @@
         </p>
       </div>
 
-      {#if statusAlert}
+      {#if resendForm.wasSuccessful}
+        <Alert
+          color="success"
+          variant="soft"
+          icon="lucide:mail-check"
+          title="A fresh verification link has been sent to your email address."
+          class="text-left"
+        />
+      {:else if statusAlert}
         <Alert
           color={statusAlert.color}
           variant="soft"

@@ -1,9 +1,6 @@
 <script lang="ts">
   import { Link, useForm } from '@inertiajs/svelte'
   import { Button, Card, FormField, Input } from 'sv5ui'
-  import type { RegisterProps } from '../../types/inertia-props'
-
-  let { errors }: RegisterProps = $props()
 
   const form = useForm({
     name: '',
@@ -28,7 +25,12 @@
     {/snippet}
 
     <form class="space-y-5" onsubmit={submit}>
-      <FormField name="name" label="Name" required error={errors?.name?.[0]}>
+      <FormField
+        name="name"
+        label="Name"
+        required
+        error={form.errors.name?.[0]}
+      >
         <Input
           type="text"
           autocomplete="name"
@@ -42,7 +44,7 @@
         name="email"
         label="Email address"
         required
-        error={errors?.email?.[0]}
+        error={form.errors.email?.[0]}
       >
         <Input
           type="email"
@@ -58,7 +60,7 @@
         label="Password"
         required
         help="At least 8 characters."
-        error={errors?.password?.[0]}
+        error={form.errors.password?.[0]}
       >
         <Input
           type="password"
@@ -72,7 +74,7 @@
         name="password_confirmation"
         label="Confirm password"
         required
-        error={errors?.password_confirmation?.[0]}
+        error={form.errors.password_confirmation?.[0]}
       >
         <Input
           type="password"

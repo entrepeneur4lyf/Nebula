@@ -28,9 +28,6 @@
   const flashError = $derived(
     typeof flash.error === 'string' ? flash.error : null,
   )
-  const status = $derived(
-    typeof page.props.status === 'string' ? page.props.status : null,
-  )
 
   const userMenuItems: DropdownMenuItem[] = [
     {
@@ -115,16 +112,18 @@
     </nav>
   </header>
 
-  {#if flashSuccess || flashError || status}
+  <!--
+    Flash region renders human-ready copy only. Machine `status` keys (e.g.
+    `invalid-or-expired`) are mapped to copy by the page that consumes them,
+    never echoed raw here.
+  -->
+  {#if flashSuccess || flashError}
     <div class="mx-auto w-full max-w-5xl space-y-2 px-4 pt-4">
       {#if flashSuccess}
         <Alert color="success" variant="soft" title={flashSuccess} />
       {/if}
       {#if flashError}
         <Alert color="error" variant="soft" title={flashError} />
-      {/if}
-      {#if status}
-        <Alert color="info" variant="soft" title={status} />
       {/if}
     </div>
   {/if}

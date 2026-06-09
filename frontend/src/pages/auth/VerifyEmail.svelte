@@ -1,6 +1,7 @@
 <script lang="ts">
   import { useForm } from '@inertiajs/svelte'
-  import { Alert, Button, Card, Icon } from 'sv5ui'
+  import { Alert, Button, Card } from 'sv5ui'
+  import AuthEmblem from '../../lib/AuthEmblem.svelte'
 
   // `status` is set by the server: `"invalid-or-expired"` when a bad token
   // landed on the verify route, `null` otherwise. A successful verify
@@ -51,11 +52,7 @@
 <div class="flex justify-center px-4 py-12 sm:py-16">
   <Card class="w-full max-w-md">
     <div class="space-y-5 text-center">
-      <div
-        class="mx-auto flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary"
-      >
-        <Icon name="lucide:mail-check" class="size-6" />
-      </div>
+      <AuthEmblem />
 
       <div class="space-y-1">
         <h1 class="text-xl font-semibold text-on-surface">

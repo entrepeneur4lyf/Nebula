@@ -2,6 +2,7 @@
   import { untrack } from 'svelte'
   import { Link, useForm } from '@inertiajs/svelte'
   import { Alert, Button, Card, FormField, Input } from 'sv5ui'
+  import AuthEmblem from '../../lib/AuthEmblem.svelte'
 
   let { token }: { token: string } = $props()
 
@@ -28,8 +29,11 @@
 <div class="flex justify-center px-4 py-12 sm:py-16">
   <Card class="w-full max-w-md">
     {#snippet header()}
-      <h1 class="text-xl font-semibold text-on-surface">Reset your password</h1>
-      <p class="mt-1 text-sm text-on-surface-variant">
+      <AuthEmblem />
+      <h1 class="mt-3 text-center text-xl font-semibold text-on-surface">
+        Reset your password
+      </h1>
+      <p class="mt-1 text-center text-sm text-on-surface-variant">
         Choose a new password for your account.
       </p>
     {/snippet}

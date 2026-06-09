@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Link, useForm } from '@inertiajs/svelte'
   import { Button, Card, Checkbox, FormField, Input } from 'sv5ui'
+  import AuthEmblem from '../../lib/AuthEmblem.svelte'
 
   const form = useForm({
     email: '',
@@ -17,8 +18,11 @@
 <div class="flex justify-center px-4 py-12 sm:py-16">
   <Card class="w-full max-w-md">
     {#snippet header()}
-      <h1 class="text-xl font-semibold text-on-surface">Sign in to Nebula</h1>
-      <p class="mt-1 text-sm text-on-surface-variant">
+      <AuthEmblem />
+      <h1 class="mt-3 text-center text-xl font-semibold text-on-surface">
+        Sign in to Nebula
+      </h1>
+      <p class="mt-1 text-center text-sm text-on-surface-variant">
         Welcome back. Enter your credentials to continue.
       </p>
     {/snippet}

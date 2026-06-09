@@ -42,6 +42,22 @@
   ]
 </script>
 
+<!--
+  @inertiajs/svelte 3 ships no <Head> component (its dist exports App, Link,
+  Form, Deferred, ...), so head management is Svelte's native <svelte:head>.
+  This layout persists across visits, making the title below the app-wide
+  default; a page can override it with its own <svelte:head><title>.
+  The icon files are served by the kit's static_files routes at the web root.
+-->
+<svelte:head>
+  <title>Nebula</title>
+  <link rel="icon" href="/favicon.ico" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="manifest" href="/site.webmanifest" />
+</svelte:head>
+
 <ModeWatcher defaultMode="dark" />
 
 <div class="flex min-h-screen flex-col bg-surface text-on-surface">

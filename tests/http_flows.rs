@@ -736,3 +736,57 @@ async fn login_success_redirects_to_literal_dashboard() {
         "the Location header carries the literal path"
     );
 }
+
+// ============================================================================
+// 6. Branding statics: the favicon set + webmanifest resolve at the web root
+// ============================================================================
+
+/// The framework server has no static-file handler, so the kit serves its
+/// `public/` branding whitelist through explicit routes
+/// (`controllers::static_files::serve`). This drives those routes through the
+/// real router + global middleware stack, exactly as a browser requests them
+/// — and since dev and prod are the same Rust server (Vite only supplies
+/// JS/CSS via absolute dev-server URLs), one pass covers both modes.
+#[tokio::test]
+async fn branding_statics_resolve_at_web_root() {
+    let mut harness = setup().await;
+    let addr = harness.spawn_app().await;
+    let mut client = Client::new(addr);
+
+    let icon = client.get("/favicon.ico").await;
+    assert_eq!(icon.status, 200, "GET /favicon.ico must serve: {}", icon.body);
+    assert_eq!(
+        icon.headers.get("content-type").map(String::as_str),
+        Some("image/x-icon")
+    );
+    assert!(!icon.body.is_empty(), "favicon body must not be empty");
+
+    let png = client.get("/favicon-32x32.png").await;
+    assert_eq!(png.status, 200, "GET /favicon-32x32.png must serve");
+    assert_eq!(
+        png.headers.get("content-type").map(String::as_str),
+        Some("image/png")
+    );
+    assert_eq!(
+        png.headers.get("cache-control").map(String::as_str),
+        Some("public, max-age=86400"),
+        "statics carry a day-long cache"
+    );
+
+    let manifest = client.get("/site.webmanifest").await;
+    assert_eq!(manifest.status, 200, "GET /site.webmanifest must serve");
+    assert_eq!(
+        manifest.headers.get("content-type").map(String::as_str),
+        Some("application/manifest+json")
+    );
+    assert!(
+        manifest.body.contains("\"name\": \"Nebula\""),
+        "manifest names the app: {}",
+        manifest.body
+    );
+
+    // The whitelist is the route table: an unrouted public path stays a 404
+    // (nothing falls through to a directory listing or arbitrary file read).
+    let stray = client.get("/site.webmanifest.bak").await;
+    assert_eq!(stray.status, 404);
+}

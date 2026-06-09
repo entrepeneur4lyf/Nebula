@@ -3,6 +3,7 @@ pub mod dashboard;
 pub mod home;
 pub mod password_reset;
 pub mod profile;
+pub mod static_files;
 pub mod verify_email;
 
 /// The app's external base URL (for building emailed links). `APP_URL` or the dev default.

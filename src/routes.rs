@@ -7,6 +7,19 @@ routes! {
     // Public routes
     get!("/", controllers::home::index),
 
+    // Branding files browsers and the web app manifest request at the web
+    // root. The framework server has no static-file handler, so the kit
+    // serves its small `public/` whitelist through explicit routes — the
+    // same handler in dev and prod (the page origin is the Rust server in
+    // both; Vite only supplies JS/CSS).
+    get!("/favicon.ico", controllers::static_files::serve),
+    get!("/favicon-16x16.png", controllers::static_files::serve),
+    get!("/favicon-32x32.png", controllers::static_files::serve),
+    get!("/android-chrome-192x192.png", controllers::static_files::serve),
+    get!("/android-chrome-512x512.png", controllers::static_files::serve),
+    get!("/apple-touch-icon.png", controllers::static_files::serve),
+    get!("/site.webmanifest", controllers::static_files::serve),
+
     // The verification-token consume endpoint is self-contained: the token in
     // the query string is the proof, so no session is needed. Keep it public
     // so a link opened on a logged-out device still verifies (gating it behind

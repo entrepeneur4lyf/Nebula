@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Link, useForm } from '@inertiajs/svelte'
   import { Alert, Button, Card, FormField, Input } from 'sv5ui'
+  import AuthEmblem from '../../lib/AuthEmblem.svelte'
 
   const form = useForm({
     email: '',
@@ -26,10 +27,11 @@
 <div class="flex justify-center px-4 py-12 sm:py-16">
   <Card class="w-full max-w-md">
     {#snippet header()}
-      <h1 class="text-xl font-semibold text-on-surface">
+      <AuthEmblem />
+      <h1 class="mt-3 text-center text-xl font-semibold text-on-surface">
         Forgot your password?
       </h1>
-      <p class="mt-1 text-sm text-on-surface-variant">
+      <p class="mt-1 text-center text-sm text-on-surface-variant">
         Enter your email address and we'll send you a link to reset it.
       </p>
     {/snippet}

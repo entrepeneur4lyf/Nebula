@@ -6,9 +6,20 @@
     email: '',
   })
 
+  // Tracks "a reset link was sent" across submits. `form.wasSuccessful` sticks
+  // once set, so a later failed submit would show the success banner alongside
+  // a field error; this flag clears at submit start and persists otherwise.
+  let linkSent = $state(false)
+
   function submit(e: SubmitEvent) {
     e.preventDefault()
-    form.post('/forgot-password', { preserveState: true })
+    linkSent = false
+    form.post('/forgot-password', {
+      preserveState: true,
+      onSuccess: () => {
+        linkSent = true
+      },
+    })
   }
 </script>
 
@@ -24,7 +35,7 @@
     {/snippet}
 
     <div class="space-y-5">
-      {#if form.wasSuccessful}
+      {#if linkSent}
         <Alert
           color="success"
           variant="soft"

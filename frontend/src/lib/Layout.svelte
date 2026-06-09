@@ -19,17 +19,12 @@
     (page.props.auth as { user?: AuthUser | null } | undefined)?.user ?? null,
   )
 
-  // Inertia v3 carries one-shot flash data on the page object itself
-  // (`page.flash`), not inside `props`.
-  const flash = $derived(
-    (page.flash as Record<string, unknown> | undefined) ?? {},
-  )
-  const flashSuccess = $derived(
-    typeof flash.success === 'string' ? flash.success : null,
-  )
-  const flashError = $derived(
-    typeof flash.error === 'string' ? flash.error : null,
-  )
+  // `flash` is a first-class typed property on Inertia's Page object,
+  // populated from the server-side session flash for this visit: the server
+  // consumes the flash, the client keeps it for the rendered page. Its shape
+  // comes from the `flashDataType` augmentation in `types/inertia.d.ts`.
+  const flashSuccess = $derived(page.flash?.success ?? null)
+  const flashError = $derived(page.flash?.error ?? null)
 
   const userMenuItems: DropdownMenuItem[] = [
     {

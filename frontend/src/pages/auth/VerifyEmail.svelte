@@ -5,8 +5,8 @@
   // `status` is set by the server: `"invalid-or-expired"` when a bad token
   // landed on the verify route, `null` otherwise. A successful verify
   // redirects to the dashboard and a successful resend redirects back here
-  // without a status key, so the "link sent" confirmation keys off the
-  // resend form's own success state instead.
+  // without a status key, so the "link sent" confirmation keys off a local
+  // flag instead.
   let { status }: { status: string | null } = $props()
 
   const statusAlerts: Record<
@@ -26,10 +26,19 @@
   const resendForm = useForm({})
   const logoutForm = useForm({})
 
+  // Tracks "a fresh link was sent" across submits. `resendForm.wasSuccessful`
+  // sticks once set, so a later failed resend would keep showing the success
+  // banner; this flag clears at submit start and persists otherwise.
+  let linkSent = $state(false)
+
   function resend(e: SubmitEvent) {
     e.preventDefault()
+    linkSent = false
     resendForm.post('/email/verification-notification', {
       preserveState: true,
+      onSuccess: () => {
+        linkSent = true
+      },
     })
   }
 
@@ -58,20 +67,20 @@
         </p>
       </div>
 
-      {#if resendForm.wasSuccessful}
-        <Alert
-          color="success"
-          variant="soft"
-          icon="lucide:mail-check"
-          title="A fresh verification link has been sent to your email address."
-          class="text-left"
-        />
-      {:else if statusAlert}
+      {#if statusAlert}
         <Alert
           color={statusAlert.color}
           variant="soft"
           icon={statusAlert.icon}
           title={statusAlert.title}
+          class="text-left"
+        />
+      {:else if linkSent}
+        <Alert
+          color="success"
+          variant="soft"
+          icon="lucide:mail-check"
+          title="A fresh verification link has been sent to your email address."
           class="text-left"
         />
       {/if}

@@ -18,6 +18,11 @@
     e.preventDefault()
     form.post('/reset-password')
   }
+
+  // A `token` error means the link is consumed or expired — no resubmit with
+  // this token can ever succeed, so the form is replaced with a CTA to
+  // request a fresh link.
+  const tokenError = $derived(form.errors.token?.[0] ?? null)
 </script>
 
 <div class="flex justify-center px-4 py-12 sm:py-16">
@@ -30,52 +35,59 @@
     {/snippet}
 
     <div class="space-y-5">
-      {#if form.errors.token?.[0]}
+      {#if tokenError}
         <Alert
           color="error"
           variant="soft"
           icon="lucide:link-2-off"
-          title={form.errors.token[0]}
+          title={tokenError}
         />
+
+        <Link
+          href="/forgot-password"
+          class="block rounded-lg bg-primary px-3 py-2 text-center text-sm font-medium text-on-primary transition-opacity hover:opacity-90"
+        >
+          Request a new link
+        </Link>
+      {:else}
+        <form class="space-y-5" onsubmit={submit}>
+          <FormField
+            name="password"
+            label="New password"
+            required
+            help="At least 8 characters."
+            error={form.errors.password?.[0]}
+          >
+            <Input
+              type="password"
+              autocomplete="new-password"
+              required
+              bind:value={form.password}
+            />
+          </FormField>
+
+          <FormField
+            name="password_confirmation"
+            label="Confirm new password"
+            required
+            error={form.errors.password_confirmation?.[0]}
+          >
+            <Input
+              type="password"
+              autocomplete="new-password"
+              required
+              bind:value={form.password_confirmation}
+            />
+          </FormField>
+
+          <Button
+            type="submit"
+            block
+            label="Reset password"
+            loading={form.processing}
+          />
+        </form>
       {/if}
-
-      <form class="space-y-5" onsubmit={submit}>
-        <FormField
-          name="password"
-          label="New password"
-          required
-          help="At least 8 characters."
-          error={form.errors.password?.[0]}
-        >
-          <Input
-            type="password"
-            autocomplete="new-password"
-            required
-            bind:value={form.password}
-          />
-        </FormField>
-
-        <FormField
-          name="password_confirmation"
-          label="Confirm new password"
-          required
-          error={form.errors.password_confirmation?.[0]}
-        >
-          <Input
-            type="password"
-            autocomplete="new-password"
-            required
-            bind:value={form.password_confirmation}
-          />
-        </FormField>
-
-        <Button
-          type="submit"
-          block
-          label="Reset password"
-          loading={form.processing}
-        />
-      </form>
     </div>
 
     {#snippet footer()}

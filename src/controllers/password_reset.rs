@@ -30,6 +30,8 @@ fn reset_base() -> String {
     format!("{}/reset-password", crate::controllers::app_url())
 }
 
+/// No per-page props: flash/status feedback rides the page object, and the
+/// empty struct keeps the `inertia_response!` call shape uniform.
 #[derive(InertiaProps)]
 pub struct ForgotPasswordProps {}
 

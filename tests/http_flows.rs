@@ -1,0 +1,701 @@
+//! Account-management flow tests for the Nebula starter kit — request path.
+//!
+//! These drive the kit's **real** HTTP surface: `nebula::routes::register()`
+//! (the actual `routes!` table, root-prefix `group!("/")` groups, guest /
+//! auth / verified middleware) plus the same global middleware stack
+//! `bootstrap::register()` installs (logging → session → CSRF → include),
+//! served through `suprnova::handle_request` — the framework's in-process
+//! request surface. Because `hyper::body::Incoming` cannot be built
+//! synthetically, requests travel over an ephemeral loopback socket whose
+//! service fn is `handle_request`, exactly like the framework's own
+//! integration harnesses (`framework/tests/root_group_redirect.rs`,
+//! `auth_http_middleware.rs`).
+//!
+//! The facade-level suite (`tests/auth_flows.rs`) proves the flow *logic*;
+//! this suite proves the *wiring*: route matching through root-prefix groups,
+//! session-cookie continuity, CSRF token round-trips, the guest/auth/verified
+//! gates, real PATCH/PUT/DELETE verbs (no method spoofing), and the
+//! `redirect!("/literal")` → `302 Location: /literal` contract.
+//!
+//! ## History
+//!
+//! The original Task 6 found this surface broken at framework rev `06b9447f`
+//! (`group!("/")` registered unmatchable `//login` patterns; `redirect!`
+//! resolved literal paths as route names). Both are fixed upstream as of
+//! `95777465` (canonical `join_paths` for group prefixes; literal-shape
+//! dispatch in `redirect!`) — this suite is the consumer-side pin on those
+//! fixes.
+//!
+//! ## Serial execution
+//!
+//! `Mail::fake()` swaps the process-global mail transport and the DB /
+//! auth-manager bindings live in the process-global container (the server
+//! tasks must see them), so the file is serialized behind `TEST_LOCK`,
+//! mirroring `tests/auth_flows.rs`.
+
+use std::collections::HashMap;
+use std::convert::Infallible;
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::time::Duration;
+
+use bytes::Bytes;
+use chrono::Utc;
+use http_body_util::{BodyExt, Full};
+use hyper::body::Incoming;
+use hyper::service::service_fn;
+use hyper_util::rt::TokioIo;
+use sea_orm_migration::MigratorTrait;
+use serde_json::{json, Value};
+use tokio::sync::Mutex;
+
+use suprnova::auth::AuthConfig;
+use suprnova::mail::{Mail, MailFake};
+use suprnova::{
+    handle_request, App, Auth, AuthManager, CsrfMiddleware, EloquentUserProvider,
+    IncludeMiddleware, MiddlewareRegistry, MustVerifyEmail, SessionConfig, SessionMiddleware,
+};
+
+use nebula::middleware::LoggingMiddleware;
+use nebula::migrations::Migrator;
+use nebula::models::user::User;
+
+/// Serializes every test in this file (process-global mail fake + container).
+static TEST_LOCK: Mutex<()> = Mutex::const_new(());
+
+/// Held-for-the-test guard: keeps the SeaORM connection + auth wiring
+/// registered in the global container for the duration of the test.
+struct Harness {
+    _lock: tokio::sync::MutexGuard<'static, ()>,
+}
+
+/// Fresh in-memory DB with Nebula's full migration set (users, sessions,
+/// remember_tokens, auth_flow_tokens), the `EloquentUserProvider::<User>`
+/// registered as the active "users" provider (mirroring
+/// `bootstrap::register()`), and the load-bearing `MAIL_FROM` / `APP_URL` env
+/// set. Bindings go into the **global** container — the spawned server tasks
+/// resolve `DB::connection()` / `AuthManager` from there.
+async fn setup() -> Harness {
+    let lock = TEST_LOCK.lock().await;
+
+    // SAFETY: every test in this file is serialized behind `TEST_LOCK`.
+    unsafe {
+        std::env::set_var("MAIL_FROM", "test@nebula.test");
+        std::env::set_var("APP_URL", "http://nebula.test");
+    }
+
+    // The session middleware fails closed (500) without an encryption key —
+    // `Server::from_config` installs one at boot; this harness drives
+    // `handle_request` directly, so install a process-wide test key here.
+    // The ring is a sealed OnceCell: the first test wins, later calls no-op.
+    suprnova::Crypt::init(suprnova::EncryptionKey::generate());
+
+    let conn = sea_orm::Database::connect("sqlite::memory:")
+        .await
+        .expect("connect sqlite::memory:");
+    Migrator::up(&conn, None)
+        .await
+        .expect("run Nebula migrations against sqlite::memory:");
+    App::singleton(suprnova::DbConnection::from_raw(conn));
+
+    App::singleton(AuthManager::new(AuthConfig::default()));
+    Auth::register_provider("users", Arc::new(EloquentUserProvider::<User>::new()))
+        .expect("register users provider");
+
+    Harness { _lock: lock }
+}
+
+/// Spawn the kit's real app — `nebula::routes::register()` behind the same
+/// global middleware stack `bootstrap::register()` installs — on an ephemeral
+/// loopback listener whose service fn is `suprnova::handle_request`. The
+/// accept loop runs until the test's runtime drops it.
+async fn spawn_app() -> SocketAddr {
+    let router = Arc::new(nebula::routes::register());
+    let registry = Arc::new(
+        MiddlewareRegistry::new()
+            .append(LoggingMiddleware)
+            .append(SessionMiddleware::new(SessionConfig::from_env()))
+            .append(CsrfMiddleware::new())
+            .append(IncludeMiddleware),
+    );
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind ephemeral listener");
+    let addr = listener.local_addr().expect("local_addr");
+
+    tokio::spawn(async move {
+        loop {
+            let Ok((stream, _)) = listener.accept().await else {
+                return;
+            };
+            let io = TokioIo::new(stream);
+            let router = router.clone();
+            let registry = registry.clone();
+            tokio::spawn(async move {
+                let svc = service_fn(move |req: hyper::Request<Incoming>| {
+                    let router = router.clone();
+                    let registry = registry.clone();
+                    async move { Ok::<_, Infallible>(handle_request(router, registry, req).await) }
+                });
+                let _ = hyper::server::conn::http1::Builder::new()
+                    .serve_connection(io, svc)
+                    .await;
+            });
+        }
+    });
+
+    addr
+}
+
+/// One captured HTTP exchange.
+struct Resp {
+    status: u16,
+    /// Lowercased header names, last value wins (`set-cookie` is handled
+    /// separately by the client's jar).
+    headers: HashMap<String, String>,
+    body: String,
+}
+
+impl Resp {
+    fn location(&self) -> &str {
+        self.headers
+            .get("location")
+            .map(String::as_str)
+            .unwrap_or_else(|| panic!("expected a Location header, got: {:?}", self.headers))
+    }
+}
+
+/// A minimal browser: cookie jar + CSRF echo. Every request opens a fresh
+/// HTTP/1.1 connection (matching how the accept loop serves), carries the
+/// jar as `Cookie`, and echoes the `XSRF-TOKEN` cookie back as
+/// `X-XSRF-TOKEN` on state-changing verbs — exactly what the Inertia client
+/// does in production.
+struct Client {
+    addr: SocketAddr,
+    cookies: HashMap<String, String>,
+}
+
+impl Client {
+    fn new(addr: SocketAddr) -> Self {
+        Self {
+            addr,
+            cookies: HashMap::new(),
+        }
+    }
+
+    async fn get(&mut self, path: &str) -> Resp {
+        self.request("GET", path, None).await
+    }
+
+    async fn post_json(&mut self, path: &str, body: Value) -> Resp {
+        self.request("POST", path, Some(body)).await
+    }
+
+    async fn patch_json(&mut self, path: &str, body: Value) -> Resp {
+        self.request("PATCH", path, Some(body)).await
+    }
+
+    async fn put_json(&mut self, path: &str, body: Value) -> Resp {
+        self.request("PUT", path, Some(body)).await
+    }
+
+    async fn delete_json(&mut self, path: &str, body: Value) -> Resp {
+        self.request("DELETE", path, Some(body)).await
+    }
+
+    async fn request(&mut self, method: &str, path: &str, body: Option<Value>) -> Resp {
+        let stream = tokio::net::TcpStream::connect(self.addr)
+            .await
+            .expect("connect to test server");
+        let io = TokioIo::new(stream);
+        let (mut sender, conn) = hyper::client::conn::http1::handshake::<_, Full<Bytes>>(io)
+            .await
+            .expect("client handshake");
+        tokio::spawn(async move {
+            let _ = conn.await;
+        });
+
+        let payload = body
+            .map(|v| Bytes::from(v.to_string()))
+            .unwrap_or_default();
+
+        let mut builder = hyper::Request::builder()
+            .method(method)
+            .uri(path)
+            .header("Host", "nebula.test")
+            .header("Content-Length", payload.len().to_string());
+        if !payload.is_empty() {
+            builder = builder.header("Content-Type", "application/json");
+        }
+        if !self.cookies.is_empty() {
+            let jar = self
+                .cookies
+                .iter()
+                .map(|(k, v)| format!("{k}={v}"))
+                .collect::<Vec<_>>()
+                .join("; ");
+            builder = builder.header("Cookie", jar);
+        }
+        // Echo the CSRF token on state-changing verbs, as the SPA client does.
+        if matches!(method, "POST" | "PUT" | "PATCH" | "DELETE")
+            && let Some(token) = self.cookies.get("XSRF-TOKEN")
+        {
+            builder = builder.header("X-XSRF-TOKEN", token.as_str());
+        }
+
+        let req = builder
+            .body(Full::new(payload))
+            .expect("build request");
+        let resp = tokio::time::timeout(Duration::from_secs(10), sender.send_request(req))
+            .await
+            .expect("send_request timeout")
+            .expect("hyper send_request");
+
+        let (parts, body) = resp.into_parts();
+
+        // Fold every Set-Cookie into the jar (a Max-Age=0 tombstone evicts).
+        for value in parts.headers.get_all("set-cookie") {
+            let Ok(raw) = value.to_str() else { continue };
+            let mut segments = raw.split(';');
+            let Some((name, val)) = segments.next().and_then(|nv| nv.split_once('=')) else {
+                continue;
+            };
+            let expired = segments.any(|attr| {
+                let attr = attr.trim().to_ascii_lowercase();
+                attr == "max-age=0"
+            });
+            if expired || val.is_empty() {
+                self.cookies.remove(name.trim());
+            } else {
+                self.cookies
+                    .insert(name.trim().to_string(), val.to_string());
+            }
+        }
+
+        let headers = parts
+            .headers
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.as_str().to_lowercase(),
+                    v.to_str().unwrap_or("").to_string(),
+                )
+            })
+            .collect();
+        let bytes = body.collect().await.expect("collect body").to_bytes();
+        Resp {
+            status: parts.status.as_u16(),
+            headers,
+            body: String::from_utf8_lossy(&bytes).to_string(),
+        }
+    }
+}
+
+/// Reload a user from the DB by email via the same model surface the kit uses.
+async fn reload(email: &str) -> User {
+    User::find_by_email(email)
+        .await
+        .expect("lookup")
+        .unwrap_or_else(|| panic!("user {email} exists"))
+}
+
+/// Stamp a user verified (seeds the password-reset / profile fixtures in the
+/// same already-verified state a click-through produces).
+async fn mark_verified(user: &mut User) {
+    user.email_verified_at = Some(Utc::now());
+    suprnova::eloquent::Model::save(user)
+        .await
+        .expect("stamp email_verified_at");
+}
+
+/// Pull the plaintext token out of the first captured mail whose text body
+/// carries a `token=` link.
+fn token_from_fake(fake: &MailFake) -> String {
+    let captured = fake.captured();
+    let msg = captured
+        .iter()
+        .find(|m| {
+            m.text
+                .as_deref()
+                .is_some_and(|t| t.lines().any(|l| l.contains("token=")))
+        })
+        .expect("a captured mail with a token link");
+    let text = msg.text.as_deref().expect("token mail has a text body");
+    let link = text
+        .lines()
+        .find(|l| l.contains("token="))
+        .expect("a line with the token link");
+    link.rsplit("token=")
+        .next()
+        .expect("token after marker")
+        .trim()
+        .to_string()
+}
+
+// ============================================================================
+// 1. Email verification over HTTP: register → gated → verify → dashboard
+// ============================================================================
+
+#[tokio::test]
+async fn register_then_verify_email_over_http() {
+    let _h = setup().await;
+    let addr = spawn_app().await;
+    let mut client = Client::new(addr);
+
+    // Acquire a session + CSRF cookie through the guest-gated register page —
+    // this also proves the root-prefix `group!("/")` routes match over HTTP.
+    let resp = client.get("/register").await;
+    assert_eq!(resp.status, 200, "GET /register must render: {}", resp.body);
+
+    // Register. The success path is `redirect!("/dashboard")` — the literal
+    // Location pins the framework's literal-redirect dispatch fix.
+    let fake = Mail::fake();
+    let resp = client
+        .post_json(
+            "/register",
+            json!({
+                "name": "Grace Hopper",
+                "email": "grace@nebula.test",
+                "password": "supersecret",
+                "password_confirmation": "supersecret",
+            }),
+        )
+        .await;
+    assert_eq!(resp.status, 302, "register must redirect: {}", resp.body);
+    assert_eq!(resp.location(), "/dashboard");
+
+    // A verification mail was captured for the new address.
+    fake.assert_sent_to("grace@nebula.test");
+    assert_eq!(fake.count(), 1, "exactly one verification mail");
+    let token = token_from_fake(&fake);
+
+    // Logged in but unverified: the `verified` gate bounces to the notice.
+    let resp = client.get("/dashboard").await;
+    assert_eq!(resp.status, 302, "unverified user must not see /dashboard");
+    assert_eq!(resp.location(), "/verify-email");
+
+    // The notice itself renders (auth-but-not-verified group).
+    let resp = client.get("/verify-email").await;
+    assert_eq!(resp.status, 200, "the verify notice must render");
+
+    // Consume the emailed token (public route — the token is the proof).
+    let resp = client
+        .get(&format!("/verify-email/verify?token={token}"))
+        .await;
+    assert_eq!(resp.status, 302, "verify must redirect: {}", resp.body);
+    assert_eq!(resp.location(), "/dashboard");
+
+    // The stamp persisted, and the gate now opens.
+    assert!(
+        reload("grace@nebula.test").await.is_email_verified(),
+        "verification must persist email_verified_at"
+    );
+    let resp = client.get("/dashboard").await;
+    assert_eq!(resp.status, 200, "verified user reaches /dashboard");
+}
+
+// ============================================================================
+// 2. Resend over HTTP: a logged-in unverified user gets a fresh link
+// ============================================================================
+
+#[tokio::test]
+async fn resend_verification_notification_over_http() {
+    let _h = setup().await;
+    let addr = spawn_app().await;
+    let mut client = Client::new(addr);
+
+    // Register (logged in, unverified). Swallow the initial mail in its own
+    // fake so the resend capture below is unambiguous.
+    let resp = client.get("/register").await;
+    assert_eq!(resp.status, 200);
+    {
+        let _initial = Mail::fake();
+        let resp = client
+            .post_json(
+                "/register",
+                json!({
+                    "name": "Ada Lovelace",
+                    "email": "ada@nebula.test",
+                    "password": "oldpass1!",
+                    "password_confirmation": "oldpass1!",
+                }),
+            )
+            .await;
+        assert_eq!(resp.status, 302, "register: {}", resp.body);
+    }
+
+    // Resend: a fresh link is mailed to the logged-in unverified user.
+    let fake = Mail::fake();
+    let resp = client
+        .post_json("/email/verification-notification", json!({}))
+        .await;
+    assert_eq!(resp.status, 302, "resend must redirect: {}", resp.body);
+    assert_eq!(resp.location(), "/verify-email");
+    assert_eq!(fake.count(), 1, "resend must capture a fresh mail");
+    fake.assert_sent_to("ada@nebula.test");
+    assert!(
+        !token_from_fake(&fake).is_empty(),
+        "the resent link carries a token"
+    );
+}
+
+// ============================================================================
+// 3. Password reset over HTTP (incl. anti-enumeration)
+// ============================================================================
+
+#[tokio::test]
+async fn password_reset_over_http_with_anti_enumeration() {
+    let _h = setup().await;
+    let addr = spawn_app().await;
+    let mut client = Client::new(addr);
+
+    // Seed a verified user with a known password.
+    let mut ada = User::create("Ada Reset", "ada@x.com", "oldpass1!")
+        .await
+        .expect("create user");
+    mark_verified(&mut ada).await;
+
+    // Acquire session + CSRF on the guest-gated request form.
+    let resp = client.get("/forgot-password").await;
+    assert_eq!(resp.status, 200, "GET /forgot-password must render");
+
+    // Known email → a reset mail is captured.
+    let fake = Mail::fake();
+    let resp = client
+        .post_json("/forgot-password", json!({ "email": "ada@x.com" }))
+        .await;
+    assert_eq!(resp.status, 302, "send-link must redirect: {}", resp.body);
+    assert_eq!(resp.location(), "/forgot-password");
+    fake.assert_sent_to("ada@x.com");
+    assert_eq!(fake.count(), 1);
+    let token = token_from_fake(&fake);
+
+    // Unknown email → NO new mail, and the *same* neutral redirect
+    // (anti-enumeration: the wire response is indistinguishable).
+    let fake2 = Mail::fake();
+    let resp = client
+        .post_json("/forgot-password", json!({ "email": "nobody@x.com" }))
+        .await;
+    assert_eq!(resp.status, 302, "unknown email gets the same 302");
+    assert_eq!(resp.location(), "/forgot-password");
+    assert_eq!(fake2.count(), 0, "unknown email must send nothing");
+
+    // The reset form renders with the token threaded through.
+    let resp = client.get(&format!("/reset-password?token={token}")).await;
+    assert_eq!(resp.status, 200, "GET /reset-password must render");
+
+    // Complete the reset → 302 /login.
+    let resp = client
+        .post_json(
+            "/reset-password",
+            json!({
+                "token": token,
+                "password": "newpass1!",
+                "password_confirmation": "newpass1!",
+            }),
+        )
+        .await;
+    assert_eq!(resp.status, 302, "reset must redirect: {}", resp.body);
+    assert_eq!(resp.location(), "/login");
+
+    // The old password no longer logs in…
+    let resp = client
+        .post_json(
+            "/login",
+            json!({ "email": "ada@x.com", "password": "oldpass1!" }),
+        )
+        .await;
+    assert_eq!(resp.status, 422, "old password must be rejected after reset");
+    assert!(
+        resp.body.contains("These credentials do not match our records."),
+        "rejection rides the validation envelope: {}",
+        resp.body
+    );
+
+    // …and the new one does (literal redirect pin: Location is /dashboard).
+    let resp = client
+        .post_json(
+            "/login",
+            json!({ "email": "ada@x.com", "password": "newpass1!" }),
+        )
+        .await;
+    assert_eq!(resp.status, 302, "new password must log in: {}", resp.body);
+    assert_eq!(resp.location(), "/dashboard");
+}
+
+// ============================================================================
+// 4. Profile over HTTP: PATCH / PUT / DELETE with real verbs
+// ============================================================================
+
+#[tokio::test]
+async fn profile_update_password_and_delete_over_http() {
+    let _h = setup().await;
+    let addr = spawn_app().await;
+    let mut client = Client::new(addr);
+
+    // Seed a verified user and log in through the real login flow.
+    let mut user = User::create("Edsger", "edsger@x.com", "oldpass1!")
+        .await
+        .expect("create user");
+    mark_verified(&mut user).await;
+
+    let resp = client.get("/login").await;
+    assert_eq!(resp.status, 200, "GET /login must render");
+    let resp = client
+        .post_json(
+            "/login",
+            json!({ "email": "edsger@x.com", "password": "oldpass1!" }),
+        )
+        .await;
+    assert_eq!(resp.status, 302, "login: {}", resp.body);
+    assert_eq!(resp.location(), "/dashboard");
+
+    // The guest gate now bounces the authenticated user off /login.
+    let resp = client.get("/login").await;
+    assert_eq!(resp.status, 302, "guest gate must bounce a logged-in user");
+    assert_eq!(resp.location(), "/dashboard");
+
+    // The profile page renders for the authenticated user.
+    let resp = client.get("/profile").await;
+    assert_eq!(resp.status, 200, "GET /profile must render: {}", resp.body);
+
+    // --- PATCH /profile: change name + email. The email change nulls the
+    //     verification stamp and re-sends the link to the NEW address.
+    let fake = Mail::fake();
+    let resp = client
+        .patch_json(
+            "/profile",
+            json!({ "name": "Edsger Dijkstra", "email": "edsger.new@x.com" }),
+        )
+        .await;
+    assert_eq!(resp.status, 302, "profile update: {}", resp.body);
+    assert_eq!(resp.location(), "/profile");
+
+    let updated = reload("edsger.new@x.com").await;
+    assert_eq!(updated.name, "Edsger Dijkstra", "name saved");
+    assert!(
+        !updated.is_email_verified(),
+        "changing the email must null email_verified_at"
+    );
+    assert_eq!(fake.count(), 1, "email change re-sends a verification link");
+    fake.assert_sent_to("edsger.new@x.com");
+
+    // The verified gate kicks back in after the email change.
+    let resp = client.get("/dashboard").await;
+    assert_eq!(resp.status, 302, "re-unverified user is gated again");
+    assert_eq!(resp.location(), "/verify-email");
+
+    // --- PUT /profile/password: wrong current password → 422 pinned to the
+    //     field; correct current password → rotated.
+    let resp = client
+        .put_json(
+            "/profile/password",
+            json!({
+                "current_password": "not-the-password",
+                "password": "brandnew1!",
+                "password_confirmation": "brandnew1!",
+            }),
+        )
+        .await;
+    assert_eq!(resp.status, 422, "wrong current password must 422");
+    assert!(
+        resp.body.contains("current_password"),
+        "the 422 pins the current_password field: {}",
+        resp.body
+    );
+
+    let resp = client
+        .put_json(
+            "/profile/password",
+            json!({
+                "current_password": "oldpass1!",
+                "password": "brandnew1!",
+                "password_confirmation": "brandnew1!",
+            }),
+        )
+        .await;
+    assert_eq!(resp.status, 302, "password rotation: {}", resp.body);
+    assert_eq!(resp.location(), "/profile");
+    let after = reload("edsger.new@x.com").await;
+    assert!(
+        after.verify_password("brandnew1!").expect("verify rotated"),
+        "the rotated password verifies"
+    );
+    assert!(
+        !after.verify_password("oldpass1!").expect("verify old"),
+        "the old password no longer verifies"
+    );
+
+    // --- DELETE /profile: wrong password → 422 and the account survives;
+    //     correct password → row gone + logged out.
+    let resp = client
+        .delete_json("/profile", json!({ "password": "wrong" }))
+        .await;
+    assert_eq!(resp.status, 422, "wrong delete password must 422");
+    assert!(
+        User::find_by_email("edsger.new@x.com")
+            .await
+            .expect("lookup")
+            .is_some(),
+        "a rejected delete must not remove the user"
+    );
+
+    let resp = client
+        .delete_json("/profile", json!({ "password": "brandnew1!" }))
+        .await;
+    assert_eq!(resp.status, 302, "confirmed delete: {}", resp.body);
+    assert_eq!(resp.location(), "/");
+    assert!(
+        User::find_by_email("edsger.new@x.com")
+            .await
+            .expect("lookup")
+            .is_none(),
+        "a confirmed delete removes the user row"
+    );
+
+    // The session is gone with the account: /profile now bounces to /login.
+    let resp = client.get("/profile").await;
+    assert_eq!(resp.status, 302, "deleted account must be logged out");
+    assert_eq!(resp.location(), "/login");
+}
+
+// ============================================================================
+// 5. Literal-redirect pin: `redirect!("/dashboard")` answers a literal 302
+// ============================================================================
+
+#[tokio::test]
+async fn login_success_redirects_to_literal_dashboard() {
+    let _h = setup().await;
+    let addr = spawn_app().await;
+    let mut client = Client::new(addr);
+
+    let mut user = User::create("Pin User", "pin@x.com", "supersecret")
+        .await
+        .expect("create user");
+    mark_verified(&mut user).await;
+
+    let resp = client.get("/login").await;
+    assert_eq!(resp.status, 200);
+
+    // The login controller's success arm is `redirect!("/dashboard")` — a
+    // string literal with a leading `/`. At framework rev 06b9447f this
+    // resolved as a route *name* and 500'd (`Route '/dashboard' not found`);
+    // since 95777465 the macro dispatches literal shapes to `Redirect::to`.
+    let resp = client
+        .post_json(
+            "/login",
+            json!({ "email": "pin@x.com", "password": "supersecret" }),
+        )
+        .await;
+    assert_eq!(
+        resp.status, 302,
+        "redirect!(\"/dashboard\") must produce a 302, not a named-route 500: {}",
+        resp.body
+    );
+    assert_eq!(
+        resp.location(),
+        "/dashboard",
+        "the Location header carries the literal path"
+    );
+}

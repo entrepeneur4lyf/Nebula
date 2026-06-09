@@ -8,75 +8,33 @@
 //! `EloquentUserProvider<User>` the kit registers, and the tokens are extracted
 //! from the captured mail bodies.
 //!
-//! ## Why facade level and not full-HTTP — two kit defects surfaced
+//! ## Facade level vs request path
 //!
-//! Task 6's preferred shape is full-HTTP through the kit's real router
-//! (`nebula::routes::register()`). That is currently **blocked** by two defects
-//! these tests uncovered — exactly the kind of pre-v0.1.0 wiring breakage this
-//! task exists to flush out. As shipped, the starter kit **cannot serve a single
-//! authenticated HTTP request**: every grouped route 404s and every controller
-//! redirect 500s. Both defects are fixable **entirely within the nebula repo**
-//! (no cross-repo coordination needed), but each reaches beyond
-//! `tests/auth_flows.rs`, so per the task's escalation clause we test at the
-//! facade level here and report the defects + fixes for a follow-up task.
+//! This suite tests *below* the router on purpose: it isolates the flow
+//! **logic** (token mint/consume, password rotation, verification-stamp
+//! write, anti-enumeration) from the HTTP wiring. The request-path
+//! counterpart lives in `tests/http_flows.rs`, which drives the kit's real
+//! router + global middleware stack through `suprnova::handle_request`.
 //!
-//! 1. **`group!("/")` registers unreachable double-slash paths.** `src/routes.rs`
-//!    wraps every authenticated route in `group!("/", { get!("/login", …), … })`.
-//!    The group builder concatenates `prefix + inner`
-//!    (`framework/src/routing/macros.rs::register_with_inherited`), so a `"/"`
-//!    prefix with inner `/login` registers the matchit pattern `//login`. A
-//!    browser request to `/login` then 404s. Empirically: driving
-//!    `nebula::routes::register()` over a real hyper server returns **404** for
-//!    every grouped route (`POST /register`, `POST /forgot-password`, `PATCH
-//!    /profile`, …); rebuilding the identical groups with an **empty** prefix
-//!    makes them route. Two fixes, not mutually exclusive: the *correct*
-//!    long-term fix is to collapse a leading `//` in `register_with_inherited`
-//!    (a framework change, in nation-x-com, so no other consumer hits this); the
-//!    *nebula-local* fix that unblocks full-HTTP coverage now is to change the
-//!    kit's idiom to `group!("", { … })` (or drop the wrapping group for
-//!    absolute-path routes). The top-level ungrouped routes (`GET /`, `GET
-//!    /verify-email/verify`) are unaffected.
-//!
-//! 2. **Controllers use the named-route redirect helper with no named routes.**
-//!    Every controller success path calls `redirect!("/dashboard")` /
-//!    `redirect!("/login")` / `redirect!("/profile")`. `redirect!` expands to
-//!    `Redirect::route(name)`, which resolves its argument as a **route name**
-//!    via `try_route_with_params` — and the kit names no routes, so the lookup
-//!    returns `NameNotFound` and the request 500s. (Proven directly: with the
-//!    routing in #1 worked around, the grouped POSTs reach their handlers and
-//!    then 500 with `Route '/dashboard' not found`.) Fix (nebula-local): the
-//!    controllers should use the literal-path redirect (`Redirect::to(
-//!    "/dashboard")`) — or the routes should be `.name(...)`d to match the
-//!    `redirect!` arguments. The gate middleware is read-of-source **inferred**
-//!    to be unaffected (`AuthMiddleware`/`EnsureEmailVerifiedMiddleware` set the
-//!    `Location` header from their literal `redirect_to(...)` string, not via
-//!    `redirect!`), so the guest / auth / verified gates should work — but the
-//!    HTTP path 404s/500s before any gate completes a redirect, so this is not
-//!    yet empirically exercised. The full-HTTP tests will be the first to prove
-//!    it once #1 and #2 are fixed.
-//!
-//! 3. **The compile-time redirect guard is silently disabled for this kit.**
-//!    `redirect!`'s `validate_route_exists` greps `routes.rs` for `.name("…")`
-//!    and, finding *zero* named routes, treats the route table as "unknown" and
-//!    **skips validation entirely** (`available_routes.is_empty()` → `Ok`). So a
-//!    kit that names no routes gets no compile-time protection and 100% runtime
-//!    500s on every redirect — the safety net is off precisely in the case that
-//!    needs it most. Worth a framework hardening pass (e.g. treat an empty name
-//!    table as "validate against the path table" rather than "skip").
-//!
-//! These tests pass cleanly because the **flow logic** (token mint/consume,
-//! password rotation, verification-stamp write, anti-enumeration) is correct —
-//! the breakage is purely in the HTTP wiring above it. That isolation is itself
-//! the signal: fix the two wiring defects and the same flows light up over HTTP.
+//! Historical note: this file originally existed because full-HTTP coverage
+//! was blocked by two framework defects it uncovered at rev `06b9447f` —
+//! `group!("/")` registered unmatchable `//login` patterns, and
+//! `redirect!("/path")` resolved literal paths as route *names* (500 in any
+//! app with no named routes). Both were fixed upstream at `95777465`
+//! (canonical `join_paths` prefix joining; literal-shape dispatch in
+//! `redirect!`), pinned framework-side by
+//! `framework/tests/root_group_redirect.rs` and consumer-side by
+//! `tests/http_flows.rs`. The facade isolation proved its worth: these tests
+//! passed throughout, which localized the breakage to the wiring layer.
 //!
 //! ## Coverage note
 //!
-//! Because these run below the router, they do **not** exercise the dashboard
-//! gate's 302 nor the profile *controllers* (which are unreachable until the
-//! two defects are fixed). They DO prove: verification send + single-use
-//! consume + stamp persistence; resend; password reset rotation + revocation +
-//! single-use; anti-enumeration; and the profile email-change re-verification
-//! and password-rotation *logic* against the real `User` model.
+//! These prove: verification send + single-use consume + stamp persistence;
+//! resend; password reset rotation + revocation + single-use;
+//! anti-enumeration; and the profile email-change re-verification and
+//! password-rotation *logic* against the real `User` model. Route gates,
+//! session continuity, CSRF, and controller status codes are covered over
+//! HTTP in `tests/http_flows.rs`.
 //!
 //! ## Serial execution
 //!

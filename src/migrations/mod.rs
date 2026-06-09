@@ -3,6 +3,8 @@ pub use sea_orm_migration::prelude::*;
 mod m20240101_000001_create_users_table;
 mod m20240101_000002_create_sessions_table;
 mod m20240101_000003_create_remember_tokens_table;
+mod m20240101_000004_add_email_verified_at_to_users;
+mod m20240101_000005_create_auth_flow_tokens;
 
 pub struct Migrator;
 
@@ -13,6 +15,8 @@ impl MigratorTrait for Migrator {
             Box::new(m20240101_000001_create_users_table::Migration),
             Box::new(m20240101_000002_create_sessions_table::Migration),
             Box::new(m20240101_000003_create_remember_tokens_table::Migration),
+            Box::new(m20240101_000004_add_email_verified_at_to_users::Migration),
+            Box::new(m20240101_000005_create_auth_flow_tokens::Migration),
         ]
     }
 }

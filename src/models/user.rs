@@ -11,7 +11,9 @@
 use std::any::Any;
 
 use chrono::{DateTime, Utc};
-use suprnova::{attrs, hashing, model, Authenticatable, FrameworkError};
+use suprnova::{
+    attrs, hashing, model, Authenticatable, CanResetPassword, FrameworkError, MustVerifyEmail,
+};
 
 #[model(
     table = "users",
@@ -24,6 +26,10 @@ pub struct User {
     pub name: String,
     pub email: String,
     pub password: String,
+    // Nullable verification timestamp powering the email-verification flow.
+    // The model macro auto-injects `AsOptionalDateTime` for
+    // `Option<DateTime<Utc>>` fields, so no explicit cast entry is needed.
+    pub email_verified_at: Option<DateTime<Utc>>,
     pub remember_token: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -97,5 +103,40 @@ impl Authenticatable for User {
         self: std::sync::Arc<Self>,
     ) -> std::sync::Arc<dyn Any + Send + Sync> {
         self
+    }
+}
+
+// The email-verification flow reads the address + verification timestamp
+// through this trait and writes the timestamp back on consume. Implementing
+// it (alongside `CanResetPassword` below) is what lets the
+// `EloquentUserProvider<User>` registered in `bootstrap::register()` drive
+// `EmailVerification::resend` / `verify` against this model.
+impl MustVerifyEmail for User {
+    fn email(&self) -> &str {
+        &self.email
+    }
+
+    fn email_verified_at(&self) -> Option<DateTime<Utc>> {
+        self.email_verified_at
+    }
+
+    fn set_email_verified_at(&mut self, v: Option<DateTime<Utc>>) {
+        self.email_verified_at = v;
+    }
+
+    fn name(&self) -> Option<&str> {
+        Some(&self.name)
+    }
+}
+
+// The password-reset flow addresses its mail through `email_for_reset()` and
+// persists the rotated (already-hashed) password through `set_password_hash()`.
+impl CanResetPassword for User {
+    fn email_for_reset(&self) -> &str {
+        &self.email
+    }
+
+    fn set_password_hash(&mut self, hash: &str) {
+        self.password = hash.to_string();
     }
 }

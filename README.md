@@ -46,7 +46,7 @@ the SQLite database) and Vite on `:5173`, and watches both. Open
 **http://localhost:8080** — the page origin is always the Rust server;
 Vite only supplies JS/CSS.
 
-Prefer raw cargo? `cargo run --bin nebula -- serve` runs the backend
+Prefer raw cargo? `cargo run --bin nebula` runs the backend
 alone; pair it with `npm run dev` in `frontend/`.
 
 ### Your first registration

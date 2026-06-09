@@ -5952,7 +5952,7 @@ dependencies = [
 [[package]]
 name = "suprnova"
 version = "0.1.0"
-source = "git+https://github.com/entrepeneur4lyf/suprnova.git#95777465e3ac20130c4b6ebab0ac68c5f1a27560"
+source = "git+https://github.com/entrepeneur4lyf/suprnova.git#536529b45eca383b20ff73f6e5130f2553deb421"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -6038,7 +6038,7 @@ dependencies = [
 [[package]]
 name = "suprnova-macros"
 version = "0.1.0"
-source = "git+https://github.com/entrepeneur4lyf/suprnova.git#95777465e3ac20130c4b6ebab0ac68c5f1a27560"
+source = "git+https://github.com/entrepeneur4lyf/suprnova.git#536529b45eca383b20ff73f6e5130f2553deb421"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6051,7 +6051,7 @@ dependencies = [
 [[package]]
 name = "suprnova-web-push"
 version = "0.1.0"
-source = "git+https://github.com/entrepeneur4lyf/suprnova.git#95777465e3ac20130c4b6ebab0ac68c5f1a27560"
+source = "git+https://github.com/entrepeneur4lyf/suprnova.git#536529b45eca383b20ff73f6e5130f2553deb421"
 dependencies = [
  "base64 0.22.1",
  "chrono",

@@ -1,4 +1,4 @@
-use suprnova::{get, group, post, routes};
+use suprnova::{delete, get, group, patch, post, put, routes};
 
 use crate::controllers;
 use crate::middleware;
@@ -33,6 +33,14 @@ routes! {
         get!("/verify-email", controllers::verify_email::show_notice),
         post!("/email/verification-notification", controllers::verify_email::resend),
         post!("/logout", controllers::auth::logout),
+
+        // Self-service profile management. Kept off the `verified` gate so an
+        // unverified-but-logged-in user can still update their details — and,
+        // by changing their email, re-trigger verification.
+        get!("/profile", controllers::profile::show),
+        patch!("/profile", controllers::profile::update),
+        put!("/profile/password", controllers::profile::update_password),
+        delete!("/profile", controllers::profile::destroy),
     }).middleware(middleware::authenticate::auth()),
 
     // Authenticated AND email-verified. `verified()` composes after `auth()`,

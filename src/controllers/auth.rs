@@ -129,11 +129,20 @@ pub async fn register(form: RegisterRequest) -> Response {
     // mails `{APP_URL}/verify-email/verify?token=…`. Registration leaves the
     // user logged-in-but-unverified; the `verified` gate on `/dashboard`
     // routes them to `/verify-email` until they click the link.
+    //
+    // This send is best-effort: the account is already created and the session
+    // logged in, so a mail failure (e.g. a misconfigured `MAIL_FROM`) must not
+    // 500 registration. We log and continue — the user lands on the verified
+    // gate at `/verify-email` and can resend from there.
     let base = format!(
         "{}/verify-email/verify",
         std::env::var("APP_URL").unwrap_or_else(|_| "http://localhost:8765".into())
     );
-    suprnova::auth_flows::EmailVerification::send_link(user.as_ref(), &base).await?;
+    if let Err(err) =
+        suprnova::auth_flows::EmailVerification::send_link(user.as_ref(), &base).await
+    {
+        tracing::warn!(error = %err, "failed to send verification email on registration");
+    }
 
     redirect!("/dashboard").into()
 }

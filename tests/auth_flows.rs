@@ -16,16 +16,15 @@
 //! counterpart lives in `tests/http_flows.rs`, which drives the kit's real
 //! router + global middleware stack through `suprnova::handle_request`.
 //!
-//! Historical note: this file originally existed because full-HTTP coverage
-//! was blocked by two framework defects it uncovered at rev `06b9447f` —
-//! `group!("/")` registered unmatchable `//login` patterns, and
-//! `redirect!("/path")` resolved literal paths as route *names* (500 in any
-//! app with no named routes). Both were fixed upstream at `95777465`
-//! (canonical `join_paths` prefix joining; literal-shape dispatch in
-//! `redirect!`), pinned framework-side by
+//! The HTTP wiring was broken at framework rev `06b9447f` — `group!("/")`
+//! registered unmatchable `//login` patterns, and `redirect!("/path")`
+//! resolved literal paths as route *names* (500 in any app with no named
+//! routes). Both are fixed as of `95777465` (canonical `join_paths` prefix
+//! joining; literal-shape dispatch in `redirect!`), pinned framework-side by
 //! `framework/tests/root_group_redirect.rs` and consumer-side by
-//! `tests/http_flows.rs`. The facade isolation proved its worth: these tests
-//! passed throughout, which localized the breakage to the wiring layer.
+//! `tests/http_flows.rs`. Because this suite sits below the router, wiring
+//! defects of that kind cannot fail it — a failure here points at the flow
+//! logic itself.
 //!
 //! ## Coverage note
 //!
@@ -39,15 +38,16 @@
 //! ## Serial execution
 //!
 //! `Mail::fake()` swaps the process-global mail transport and the active user
-//! provider is process-global, so the file is serialized behind `TEST_LOCK`,
-//! mirroring `framework/tests/email_verify.rs`.
+//! provider is process-global, so the file is serialized behind the shared
+//! `common::TEST_LOCK` (also held by `tests/http_flows.rs`).
+
+mod common;
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
 use sea_orm_migration::MigratorTrait;
-use tokio::sync::Mutex;
 
 use suprnova::auth::AuthConfig;
 use suprnova::auth_flows::{EmailVerification, PasswordReset};
@@ -61,9 +61,6 @@ use suprnova::{
 use nebula::migrations::Migrator;
 use nebula::models::user::User;
 
-/// Serializes every test in this file (process-global mail fake + provider).
-static TEST_LOCK: Mutex<()> = Mutex::const_new(());
-
 /// Held-for-the-test guard: keeps the SeaORM connection registered for the
 /// duration of the test so the provider + facades resolve `DB::connection()`.
 struct Harness {
@@ -76,9 +73,9 @@ struct Harness {
 /// `APP_URL` env set (the verify/reset send paths fail closed without
 /// `MAIL_FROM`; `APP_URL` pins the emitted link base).
 async fn setup() -> Harness {
-    let lock = TEST_LOCK.lock().await;
+    let lock = common::TEST_LOCK.lock().await;
 
-    // SAFETY: every test in this file is serialized behind `TEST_LOCK`.
+    // SAFETY: every test in this file is serialized behind `common::TEST_LOCK`.
     unsafe {
         std::env::set_var("MAIL_FROM", "test@nebula.test");
         std::env::set_var("APP_URL", "http://nebula.test");
@@ -137,11 +134,9 @@ fn token_from_fake(fake: &MailFake) -> String {
         .lines()
         .find(|l| l.contains("token="))
         .expect("a line with the token link");
-    link.rsplit("token=")
-        .next()
-        .expect("token after marker")
-        .trim()
-        .to_string()
+    link.split_once("token=")
+        .map(|(_, tail)| tail.trim().to_string())
+        .expect("verification link should carry token=")
 }
 
 // ============================================================================

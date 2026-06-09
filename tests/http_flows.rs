@@ -19,7 +19,7 @@
 //!
 //! ## History
 //!
-//! The original Task 6 found this surface broken at framework rev `06b9447f`
+//! This surface was broken at framework rev `06b9447f`
 //! (`group!("/")` registered unmatchable `//login` patterns; `redirect!`
 //! resolved literal paths as route names). Both are fixed upstream as of
 //! `95777465` (canonical `join_paths` for group prefixes; literal-shape
@@ -30,8 +30,10 @@
 //!
 //! `Mail::fake()` swaps the process-global mail transport and the DB /
 //! auth-manager bindings live in the process-global container (the server
-//! tasks must see them), so the file is serialized behind `TEST_LOCK`,
-//! mirroring `tests/auth_flows.rs`.
+//! tasks must see them), so the file is serialized behind the shared
+//! `common::TEST_LOCK` (also held by `tests/auth_flows.rs`).
+
+mod common;
 
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -47,7 +49,6 @@ use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
 use sea_orm_migration::MigratorTrait;
 use serde_json::{json, Value};
-use tokio::sync::Mutex;
 
 use suprnova::auth::AuthConfig;
 use suprnova::mail::{Mail, MailFake};
@@ -60,13 +61,20 @@ use nebula::middleware::LoggingMiddleware;
 use nebula::migrations::Migrator;
 use nebula::models::user::User;
 
-/// Serializes every test in this file (process-global mail fake + container).
-static TEST_LOCK: Mutex<()> = Mutex::const_new(());
-
 /// Held-for-the-test guard: keeps the SeaORM connection + auth wiring
-/// registered in the global container for the duration of the test.
+/// registered in the global container for the duration of the test, and
+/// aborts the test's accept loop on drop so the server dies with its harness.
 struct Harness {
     _lock: tokio::sync::MutexGuard<'static, ()>,
+    server: Option<tokio::task::AbortHandle>,
+}
+
+impl Drop for Harness {
+    fn drop(&mut self) {
+        if let Some(server) = self.server.take() {
+            server.abort();
+        }
+    }
 }
 
 /// Fresh in-memory DB with Nebula's full migration set (users, sessions,
@@ -76,9 +84,9 @@ struct Harness {
 /// set. Bindings go into the **global** container — the spawned server tasks
 /// resolve `DB::connection()` / `AuthManager` from there.
 async fn setup() -> Harness {
-    let lock = TEST_LOCK.lock().await;
+    let lock = common::TEST_LOCK.lock().await;
 
-    // SAFETY: every test in this file is serialized behind `TEST_LOCK`.
+    // SAFETY: every test in this file is serialized behind `common::TEST_LOCK`.
     unsafe {
         std::env::set_var("MAIL_FROM", "test@nebula.test");
         std::env::set_var("APP_URL", "http://nebula.test");
@@ -102,50 +110,59 @@ async fn setup() -> Harness {
     Auth::register_provider("users", Arc::new(EloquentUserProvider::<User>::new()))
         .expect("register users provider");
 
-    Harness { _lock: lock }
+    Harness {
+        _lock: lock,
+        server: None,
+    }
 }
 
-/// Spawn the kit's real app — `nebula::routes::register()` behind the same
-/// global middleware stack `bootstrap::register()` installs — on an ephemeral
-/// loopback listener whose service fn is `suprnova::handle_request`. The
-/// accept loop runs until the test's runtime drops it.
-async fn spawn_app() -> SocketAddr {
-    let router = Arc::new(nebula::routes::register());
-    let registry = Arc::new(
-        MiddlewareRegistry::new()
-            .append(LoggingMiddleware)
-            .append(SessionMiddleware::new(SessionConfig::from_env()))
-            .append(CsrfMiddleware::new())
-            .append(IncludeMiddleware),
-    );
+impl Harness {
+    /// Spawn the kit's real app — `nebula::routes::register()` behind the same
+    /// global middleware stack `bootstrap::register()` installs — on an
+    /// ephemeral loopback listener whose service fn is
+    /// `suprnova::handle_request`. The accept loop's abort handle is stored on
+    /// the harness and aborted on drop, so the server's lifetime is the test's.
+    async fn spawn_app(&mut self) -> SocketAddr {
+        let router = Arc::new(nebula::routes::register());
+        let registry = Arc::new(
+            MiddlewareRegistry::new()
+                .append(LoggingMiddleware)
+                .append(SessionMiddleware::new(SessionConfig::from_env()))
+                .append(CsrfMiddleware::new())
+                .append(IncludeMiddleware),
+        );
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind ephemeral listener");
-    let addr = listener.local_addr().expect("local_addr");
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind ephemeral listener");
+        let addr = listener.local_addr().expect("local_addr");
 
-    tokio::spawn(async move {
-        loop {
-            let Ok((stream, _)) = listener.accept().await else {
-                return;
-            };
-            let io = TokioIo::new(stream);
-            let router = router.clone();
-            let registry = registry.clone();
-            tokio::spawn(async move {
-                let svc = service_fn(move |req: hyper::Request<Incoming>| {
-                    let router = router.clone();
-                    let registry = registry.clone();
-                    async move { Ok::<_, Infallible>(handle_request(router, registry, req).await) }
+        let accept_loop = tokio::spawn(async move {
+            loop {
+                let Ok((stream, _)) = listener.accept().await else {
+                    return;
+                };
+                let io = TokioIo::new(stream);
+                let router = router.clone();
+                let registry = registry.clone();
+                tokio::spawn(async move {
+                    let svc = service_fn(move |req: hyper::Request<Incoming>| {
+                        let router = router.clone();
+                        let registry = registry.clone();
+                        async move {
+                            Ok::<_, Infallible>(handle_request(router, registry, req).await)
+                        }
+                    });
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(io, svc)
+                        .await;
                 });
-                let _ = hyper::server::conn::http1::Builder::new()
-                    .serve_connection(io, svc)
-                    .await;
-            });
-        }
-    });
+            }
+        });
+        self.server = Some(accept_loop.abort_handle());
 
-    addr
+        addr
+    }
 }
 
 /// One captured HTTP exchange.
@@ -326,11 +343,9 @@ fn token_from_fake(fake: &MailFake) -> String {
         .lines()
         .find(|l| l.contains("token="))
         .expect("a line with the token link");
-    link.rsplit("token=")
-        .next()
-        .expect("token after marker")
-        .trim()
-        .to_string()
+    link.split_once("token=")
+        .map(|(_, tail)| tail.trim().to_string())
+        .expect("verification link should carry token=")
 }
 
 // ============================================================================
@@ -339,8 +354,8 @@ fn token_from_fake(fake: &MailFake) -> String {
 
 #[tokio::test]
 async fn register_then_verify_email_over_http() {
-    let _h = setup().await;
-    let addr = spawn_app().await;
+    let mut harness = setup().await;
+    let addr = harness.spawn_app().await;
     let mut client = Client::new(addr);
 
     // Acquire a session + CSRF cookie through the guest-gated register page —
@@ -401,8 +416,8 @@ async fn register_then_verify_email_over_http() {
 
 #[tokio::test]
 async fn resend_verification_notification_over_http() {
-    let _h = setup().await;
-    let addr = spawn_app().await;
+    let mut harness = setup().await;
+    let addr = harness.spawn_app().await;
     let mut client = Client::new(addr);
 
     // Register (logged in, unverified). Swallow the initial mail in its own
@@ -446,8 +461,8 @@ async fn resend_verification_notification_over_http() {
 
 #[tokio::test]
 async fn password_reset_over_http_with_anti_enumeration() {
-    let _h = setup().await;
-    let addr = spawn_app().await;
+    let mut harness = setup().await;
+    let addr = harness.spawn_app().await;
     let mut client = Client::new(addr);
 
     // Seed a verified user with a known password.
@@ -530,8 +545,8 @@ async fn password_reset_over_http_with_anti_enumeration() {
 
 #[tokio::test]
 async fn profile_update_password_and_delete_over_http() {
-    let _h = setup().await;
-    let addr = spawn_app().await;
+    let mut harness = setup().await;
+    let addr = harness.spawn_app().await;
     let mut client = Client::new(addr);
 
     // Seed a verified user and log in through the real login flow.
@@ -666,8 +681,8 @@ async fn profile_update_password_and_delete_over_http() {
 
 #[tokio::test]
 async fn login_success_redirects_to_literal_dashboard() {
-    let _h = setup().await;
-    let addr = spawn_app().await;
+    let mut harness = setup().await;
+    let addr = harness.spawn_app().await;
     let mut client = Client::new(addr);
 
     let mut user = User::create("Pin User", "pin@x.com", "supersecret")

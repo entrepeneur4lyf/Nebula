@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { useForm } from '@inertiajs/svelte'
+  import { Link, useForm } from '@inertiajs/svelte'
+  import { Button, Card, Checkbox, FormField, Input } from 'sv5ui'
   import type { LoginProps } from '../../types/inertia-props'
 
   let { errors }: LoginProps = $props()
@@ -16,77 +17,65 @@
   }
 </script>
 
-<div
-  class="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8"
->
-  <div class="max-w-md w-full space-y-8">
-    <div>
-      <h2 class="mt-6 text-center text-3xl font-extrabold text-gray-900">
-        Sign in to your account
-      </h2>
-    </div>
-    <form class="mt-8 space-y-6" onsubmit={submit}>
-      <div class="rounded-md shadow-sm -space-y-px">
-        <div>
-          <label for="email" class="sr-only">Email address</label>
-          <input
-            id="email"
-            name="email"
-            type="email"
-            autocomplete="email"
-            required
-            class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-            placeholder="Email address"
-            bind:value={form.email}
-          />
-        </div>
-        <div>
-          <label for="password" class="sr-only">Password</label>
-          <input
-            id="password"
-            name="password"
-            type="password"
-            autocomplete="current-password"
-            required
-            class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-            placeholder="Password"
-            bind:value={form.password}
-          />
-        </div>
-      </div>
+<div class="flex justify-center px-4 py-12 sm:py-16">
+  <Card class="w-full max-w-md">
+    {#snippet header()}
+      <h1 class="text-xl font-semibold text-on-surface">Sign in to Nebula</h1>
+      <p class="mt-1 text-sm text-on-surface-variant">
+        Welcome back. Enter your credentials to continue.
+      </p>
+    {/snippet}
 
-      {#if errors?.email}
-        <div class="text-red-600 text-sm">{errors.email[0]}</div>
-      {/if}
-
-      <div class="flex items-center">
-        <input
-          id="remember"
-          name="remember"
-          type="checkbox"
-          class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
-          bind:checked={form.remember}
+    <form class="space-y-5" onsubmit={submit}>
+      <FormField
+        name="email"
+        label="Email address"
+        required
+        error={errors?.email?.[0]}
+      >
+        <Input
+          type="email"
+          autocomplete="email"
+          placeholder="you@example.com"
+          required
+          bind:value={form.email}
         />
-        <label for="remember" class="ml-2 block text-sm text-gray-900">
-          Remember me
-        </label>
-      </div>
+      </FormField>
 
-      <div>
-        <button
-          type="submit"
-          disabled={form.processing}
-          class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+      <FormField
+        name="password"
+        label="Password"
+        required
+        error={errors?.password?.[0]}
+      >
+        <Input
+          type="password"
+          autocomplete="current-password"
+          required
+          bind:value={form.password}
+        />
+      </FormField>
+
+      <div class="flex items-center justify-between">
+        <Checkbox label="Remember me" bind:checked={form.remember} />
+        <Link
+          href="/forgot-password"
+          class="text-sm font-medium text-primary hover:underline"
         >
-          {form.processing ? 'Signing in...' : 'Sign in'}
-        </button>
+          Forgot your password?
+        </Link>
       </div>
 
-      <div class="text-center">
-        <a href="/register" class="text-indigo-600 hover:text-indigo-500">
-          Don't have an account? Register
-        </a>
-      </div>
+      <Button type="submit" block label="Sign in" loading={form.processing} />
     </form>
-  </div>
+
+    {#snippet footer()}
+      <p class="text-center text-sm text-on-surface-variant">
+        Don't have an account?
+        <Link href="/register" class="font-medium text-primary hover:underline">
+          Register
+        </Link>
+      </p>
+    {/snippet}
+  </Card>
 </div>

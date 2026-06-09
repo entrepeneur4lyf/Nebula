@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte'
   import { useForm } from '@inertiajs/svelte'
+  import { Badge, Button, Card, FormField, Input, Modal } from 'sv5ui'
 
   let { name, email, email_verified, errors }: {
     name: string
@@ -27,7 +28,7 @@
     password: '',
   })
 
-  let showConfirm = $state(false)
+  let confirmingDeletion = $state(false)
 
   function submitProfile(e: SubmitEvent) {
     e.preventDefault()
@@ -45,221 +46,178 @@
     e.preventDefault()
     deleteForm.delete('/profile')
   }
+
+  function closeConfirm() {
+    confirmingDeletion = false
+    deleteForm.reset()
+  }
 </script>
 
-<div class="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-  <div class="max-w-2xl w-full mx-auto space-y-8">
-    <h1 class="text-3xl font-extrabold text-gray-900">Profile</h1>
+<div class="mx-auto w-full max-w-2xl space-y-6 px-4 py-10">
+  <h1 class="text-2xl font-semibold text-on-surface">Profile</h1>
 
-    <!-- Profile information -->
-    <section class="bg-white shadow rounded-lg p-6 space-y-6">
-      <div>
-        <h2 class="text-lg font-medium text-gray-900">Profile information</h2>
-        <p class="mt-1 text-sm text-gray-500">
-          Update your account's name and email address.
-        </p>
+  <Card>
+    {#snippet header()}
+      <div class="flex items-center justify-between gap-3">
+        <h2 class="text-lg font-medium text-on-surface">Profile information</h2>
+        {#if email_verified}
+          <Badge color="success" variant="soft" label="Email verified" />
+        {:else}
+          <Badge color="warning" variant="soft" label="Email not verified" />
+        {/if}
       </div>
+      <p class="mt-1 text-sm text-on-surface-variant">
+        Update your account's name and email address.
+      </p>
+    {/snippet}
 
-      <form class="space-y-4" onsubmit={submitProfile}>
-        <div>
-          <label for="name" class="block text-sm font-medium text-gray-700">
-            Name
-          </label>
-          <input
-            id="name"
-            name="name"
-            type="text"
-            autocomplete="name"
-            required
-            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-            bind:value={profileForm.name}
-          />
-          {#if errors?.name}
-            <div class="mt-1 text-red-600 text-sm">{errors.name[0]}</div>
-          {/if}
-        </div>
+    <form class="space-y-5" onsubmit={submitProfile}>
+      <FormField name="name" label="Name" required error={errors?.name?.[0]}>
+        <Input
+          type="text"
+          autocomplete="name"
+          required
+          bind:value={profileForm.name}
+        />
+      </FormField>
 
-        <div>
-          <label for="email" class="block text-sm font-medium text-gray-700">
-            Email address
-          </label>
-          <input
-            id="email"
-            name="email"
-            type="email"
-            autocomplete="email"
-            required
-            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-            bind:value={profileForm.email}
-          />
-          {#if errors?.email}
-            <div class="mt-1 text-red-600 text-sm">{errors.email[0]}</div>
-          {/if}
-          <div class="mt-2 text-sm">
-            {#if email_verified}
-              <span class="text-green-600">Email verified ✓</span>
-            {:else}
-              <span class="text-amber-600">Email not verified</span>
-            {/if}
-          </div>
-        </div>
+      <FormField
+        name="email"
+        label="Email address"
+        required
+        help="Changing your email requires verifying the new address."
+        error={errors?.email?.[0]}
+      >
+        <Input
+          type="email"
+          autocomplete="email"
+          required
+          bind:value={profileForm.email}
+        />
+      </FormField>
 
-        <button
-          type="submit"
-          disabled={profileForm.processing}
-          class="inline-flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
-        >
-          {profileForm.processing ? 'Saving...' : 'Save'}
-        </button>
-      </form>
-    </section>
+      <Button type="submit" label="Save" loading={profileForm.processing} />
+    </form>
+  </Card>
 
-    <!-- Update password -->
-    <section class="bg-white shadow rounded-lg p-6 space-y-6">
-      <div>
-        <h2 class="text-lg font-medium text-gray-900">Update password</h2>
-        <p class="mt-1 text-sm text-gray-500">
-          Use a long, random password to keep your account secure.
-        </p>
-      </div>
+  <Card>
+    {#snippet header()}
+      <h2 class="text-lg font-medium text-on-surface">Update password</h2>
+      <p class="mt-1 text-sm text-on-surface-variant">
+        Use a long, random password to keep your account secure.
+      </p>
+    {/snippet}
 
-      <form class="space-y-4" onsubmit={submitPassword}>
-        <div>
-          <label
-            for="current_password"
-            class="block text-sm font-medium text-gray-700"
-          >
-            Current password
-          </label>
-          <input
-            id="current_password"
-            name="current_password"
-            type="password"
-            autocomplete="current-password"
-            required
-            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-            bind:value={passwordForm.current_password}
-          />
-          {#if errors?.current_password}
-            <div class="mt-1 text-red-600 text-sm">
-              {errors.current_password[0]}
-            </div>
-          {/if}
-        </div>
+    <form class="space-y-5" onsubmit={submitPassword}>
+      <FormField
+        name="current_password"
+        label="Current password"
+        required
+        error={errors?.current_password?.[0]}
+      >
+        <Input
+          type="password"
+          autocomplete="current-password"
+          required
+          bind:value={passwordForm.current_password}
+        />
+      </FormField>
 
-        <div>
-          <label for="password" class="block text-sm font-medium text-gray-700">
-            New password
-          </label>
-          <input
-            id="password"
-            name="password"
-            type="password"
-            autocomplete="new-password"
-            required
-            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-            bind:value={passwordForm.password}
-          />
-          {#if errors?.password}
-            <div class="mt-1 text-red-600 text-sm">{errors.password[0]}</div>
-          {/if}
-        </div>
+      <FormField
+        name="password"
+        label="New password"
+        required
+        help="At least 8 characters."
+        error={errors?.password?.[0]}
+      >
+        <Input
+          type="password"
+          autocomplete="new-password"
+          required
+          bind:value={passwordForm.password}
+        />
+      </FormField>
 
-        <div>
-          <label
-            for="password_confirmation"
-            class="block text-sm font-medium text-gray-700"
-          >
-            Confirm new password
-          </label>
-          <input
-            id="password_confirmation"
-            name="password_confirmation"
-            type="password"
-            autocomplete="new-password"
-            required
-            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-            bind:value={passwordForm.password_confirmation}
-          />
-          {#if errors?.password_confirmation}
-            <div class="mt-1 text-red-600 text-sm">
-              {errors.password_confirmation[0]}
-            </div>
-          {/if}
-        </div>
+      <FormField
+        name="password_confirmation"
+        label="Confirm new password"
+        required
+        error={errors?.password_confirmation?.[0]}
+      >
+        <Input
+          type="password"
+          autocomplete="new-password"
+          required
+          bind:value={passwordForm.password_confirmation}
+        />
+      </FormField>
 
-        <button
-          type="submit"
-          disabled={passwordForm.processing}
-          class="inline-flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
-        >
-          {passwordForm.processing ? 'Saving...' : 'Update password'}
-        </button>
-      </form>
-    </section>
+      <Button
+        type="submit"
+        label="Update password"
+        loading={passwordForm.processing}
+      />
+    </form>
+  </Card>
 
-    <!-- Delete account -->
-    <section class="bg-white shadow rounded-lg p-6 space-y-6">
-      <div>
-        <h2 class="text-lg font-medium text-red-700">Delete account</h2>
-        <p class="mt-1 text-sm text-gray-500">
-          Once your account is deleted, all of its data is permanently removed.
-          Enter your password to confirm.
-        </p>
-      </div>
+  <Card>
+    {#snippet header()}
+      <h2 class="text-lg font-medium text-error">Delete account</h2>
+      <p class="mt-1 text-sm text-on-surface-variant">
+        Once your account is deleted, all of its data is permanently removed.
+      </p>
+    {/snippet}
 
-      {#if !showConfirm}
-        <button
-          type="button"
-          onclick={() => (showConfirm = true)}
-          class="inline-flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-        >
-          Delete account
-        </button>
-      {:else}
-        <form class="space-y-4" onsubmit={submitDelete}>
-          <div>
-            <label
-              for="delete_password"
-              class="block text-sm font-medium text-gray-700"
-            >
-              Password
-            </label>
-            <input
-              id="delete_password"
-              name="password"
-              type="password"
-              autocomplete="current-password"
-              required
-              class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm"
-              bind:value={deleteForm.password}
-            />
-            {#if errors?.password}
-              <div class="mt-1 text-red-600 text-sm">{errors.password[0]}</div>
-            {/if}
-          </div>
-
-          <div class="flex items-center gap-3">
-            <button
-              type="submit"
-              disabled={deleteForm.processing}
-              class="inline-flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50"
-            >
-              {deleteForm.processing ? 'Deleting...' : 'Permanently delete'}
-            </button>
-            <button
-              type="button"
-              onclick={() => {
-                showConfirm = false
-                deleteForm.reset()
-              }}
-              class="inline-flex justify-center py-2 px-4 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-      {/if}
-    </section>
-  </div>
+    <Button
+      color="error"
+      label="Delete account"
+      onclick={() => (confirmingDeletion = true)}
+    />
+  </Card>
 </div>
+
+<Modal
+  bind:open={confirmingDeletion}
+  title="Delete account"
+  description="This action cannot be undone. Enter your password to confirm you want to permanently delete your account."
+  onOpenChange={(open) => {
+    if (!open) deleteForm.reset()
+  }}
+>
+  {#snippet body()}
+    <form id="delete-account-form" onsubmit={submitDelete}>
+      <FormField
+        name="password"
+        label="Password"
+        required
+        error={errors?.password?.[0]}
+      >
+        <Input
+          type="password"
+          autocomplete="current-password"
+          placeholder="Your current password"
+          required
+          bind:value={deleteForm.password}
+        />
+      </FormField>
+    </form>
+  {/snippet}
+
+  {#snippet footer()}
+    <div class="flex w-full justify-end gap-3">
+      <Button
+        variant="ghost"
+        color="surface"
+        label="Cancel"
+        onclick={closeConfirm}
+      />
+      <Button
+        type="submit"
+        form="delete-account-form"
+        color="error"
+        label="Permanently delete"
+        loading={deleteForm.processing}
+      />
+    </div>
+  {/snippet}
+</Modal>

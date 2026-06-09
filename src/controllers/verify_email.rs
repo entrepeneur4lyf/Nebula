@@ -27,10 +27,7 @@ use crate::models::user::User;
 /// Base URL the verification token is appended to. `EmailVerification`
 /// builds `{base}?token=…`, which must resolve to the `verify` handler below.
 fn verify_base() -> String {
-    format!(
-        "{}/verify-email/verify",
-        std::env::var("APP_URL").unwrap_or_else(|_| "http://localhost:8765".into())
-    )
+    format!("{}/verify-email/verify", crate::controllers::app_url())
 }
 
 #[derive(InertiaProps)]

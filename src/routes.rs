@@ -19,6 +19,10 @@ routes! {
         post!("/login", controllers::auth::login),
         get!("/register", controllers::auth::show_register),
         post!("/register", controllers::auth::register),
+        get!("/forgot-password", controllers::password_reset::show_request),
+        post!("/forgot-password", controllers::password_reset::send_link),
+        get!("/reset-password", controllers::password_reset::show_reset),
+        post!("/reset-password", controllers::password_reset::reset),
     }).middleware(middleware::authenticate::guest()),
 
     // Authenticated, verification NOT required. An unverified-but-logged-in

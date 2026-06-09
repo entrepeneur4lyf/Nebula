@@ -134,10 +134,7 @@ pub async fn register(form: RegisterRequest) -> Response {
     // logged in, so a mail failure (e.g. a misconfigured `MAIL_FROM`) must not
     // 500 registration. We log and continue — the user lands on the verified
     // gate at `/verify-email` and can resend from there.
-    let base = format!(
-        "{}/verify-email/verify",
-        std::env::var("APP_URL").unwrap_or_else(|_| "http://localhost:8765".into())
-    );
+    let base = format!("{}/verify-email/verify", crate::controllers::app_url());
     if let Err(err) =
         suprnova::auth_flows::EmailVerification::send_link(user.as_ref(), &base).await
     {

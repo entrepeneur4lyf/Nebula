@@ -29,7 +29,7 @@
     alt="Suprnova"
     width="180"
     height="180"
-    class="size-32 rounded-3xl shadow-lg sm:size-40"
+    class="size-32 shadow-lg sm:size-40"
   />
 
   <h1

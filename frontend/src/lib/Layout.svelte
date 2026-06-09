@@ -59,22 +59,13 @@
   <header class="border-b border-outline-variant bg-surface-container-low">
     <nav class="mx-auto flex h-14 w-full max-w-5xl items-center gap-6 px-4">
       <Link href="/" class="flex items-center gap-2">
-        <svg
-          class="size-6 text-primary"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <path
-            d="M12 3c-1.2 3.6-2.4 4.8-6 6 3.6 1.2 4.8 2.4 6 6 1.2-3.6 2.4-4.8 6-6-3.6-1.2-4.8-2.4-6-6z"
-          />
-          <circle cx="19" cy="5" r="1" fill="currentColor" stroke="none" />
-          <circle cx="5" cy="19" r="1" fill="currentColor" stroke="none" />
-        </svg>
+        <img
+          src="/favicon-32x32.png"
+          alt=""
+          width="32"
+          height="32"
+          class="size-6"
+        />
         <span class="text-lg font-semibold tracking-tight">Nebula</span>
       </Link>
 

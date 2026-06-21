@@ -19,3 +19,12 @@ database.db
 .env
 .env.local
 .env.*.local
+
+# AI assistant scope notes + local planning artifacts — not part of the kit
+.claude/
+CLAUDE.md
+AGENTS.md
+.superpowers/
+/docs/superpowers/
+/.planning/
+HANDOFF.md

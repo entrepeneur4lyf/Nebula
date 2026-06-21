@@ -23,6 +23,14 @@ The backend is Rust on Suprnova; the frontend is a Vite + Tailwind v4 SPA
 bridged over Inertia. Everything below is wired and tested — clone it,
 rename it, build your app on top.
 
+### Part of the Suprnova kit family
+
+Nebula is the auth-focused kit. Need more out of the box?
+**[Pulsar](https://github.com/entrepeneur4lyf/Pulsar)** is the full
+product-site kit — marketing landing, docs pipeline, blog with RSS, member
+community, and role-based access control — on Vue 3.5 + Vuetify. See every kit
+in the [Suprnova manual](https://github.com/entrepeneur4lyf/suprnova/blob/main/manual/starter-kits.md).
+
 ## Quickstart
 
 You'll need Rust (stable), Node 20+, and the Suprnova CLI:

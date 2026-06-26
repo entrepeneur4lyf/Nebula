@@ -25,11 +25,11 @@
 use serde::Deserialize;
 use suprnova::auth_flows::PasswordReset;
 use suprnova::{
-    handler, inertia_response, redirect, FormRequest, InertiaProps, Request, Response, Validate,
-    ValidationErrors,
+    FormRequest, InertiaProps, Request, Response, Validate, ValidationErrors, handler,
+    inertia_response, redirect,
 };
 
-use crate::controllers::{errors_json, inertia_form, validation_failure, FormFailure, InertiaCtx};
+use crate::controllers::{FormFailure, InertiaCtx, errors_json, inertia_form, validation_failure};
 
 /// Base URL the reset token is appended to. `PasswordReset` builds
 /// `{base}?token=…`, which must resolve to the `show_reset` handler below.
@@ -162,7 +162,10 @@ pub async fn reset(req: Request) -> Response {
             .into(),
         Err(_) => {
             let mut errors = ValidationErrors::new();
-            errors.add("token", "This password reset link is invalid or has expired.");
+            errors.add(
+                "token",
+                "This password reset link is invalid or has expired.",
+            );
             render_reset(&ctx, &form.token, errors).await
         }
     }

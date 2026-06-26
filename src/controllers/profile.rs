@@ -23,12 +23,11 @@
 use serde::Deserialize;
 use suprnova::auth_flows::EmailVerification;
 use suprnova::{
-    handler, hashing, inertia_response, redirect, Auth, CanResetPassword, FormRequest,
-    FrameworkError, InertiaProps, Model, MustVerifyEmail, Request, Response, Validate,
-    ValidationErrors,
+    Auth, CanResetPassword, FormRequest, FrameworkError, InertiaProps, Model, MustVerifyEmail,
+    Request, Response, Validate, ValidationErrors, handler, hashing, inertia_response, redirect,
 };
 
-use crate::controllers::{errors_json, inertia_form, validation_failure, FormFailure, InertiaCtx};
+use crate::controllers::{FormFailure, InertiaCtx, errors_json, inertia_form, validation_failure};
 use crate::models::user::User;
 
 // ============================================================================

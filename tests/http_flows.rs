@@ -48,14 +48,14 @@ use hyper::body::Incoming;
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
 use sea_orm_migration::MigratorTrait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use suprnova::auth::AuthConfig;
 use suprnova::mail::{Mail, MailFake};
 use suprnova::{
-    handle_request, App, Auth, AuthManager, CsrfMiddleware, EloquentUserProvider,
-    IncludeMiddleware, Inertia303Middleware, MiddlewareRegistry, MustVerifyEmail, SessionConfig,
-    SessionMiddleware,
+    App, Auth, AuthManager, CsrfMiddleware, EloquentUserProvider, IncludeMiddleware,
+    Inertia303Middleware, MiddlewareRegistry, MustVerifyEmail, SessionConfig, SessionMiddleware,
+    handle_request,
 };
 
 use nebula::middleware::LoggingMiddleware;
@@ -161,9 +161,7 @@ impl Harness {
                     let svc = service_fn(move |req: hyper::Request<Incoming>| {
                         let router = router.clone();
                         let registry = registry.clone();
-                        async move {
-                            Ok::<_, Infallible>(handle_request(router, registry, req).await)
-                        }
+                        async move { Ok::<_, Infallible>(handle_request(router, registry, req).await) }
                     });
                     let _ = hyper::server::conn::http1::Builder::new()
                         .serve_connection(io, svc)
@@ -264,9 +262,7 @@ impl Client {
             let _ = conn.await;
         });
 
-        let payload = body
-            .map(|v| Bytes::from(v.to_string()))
-            .unwrap_or_default();
+        let payload = body.map(|v| Bytes::from(v.to_string())).unwrap_or_default();
 
         let mut builder = hyper::Request::builder()
             .method(method)
@@ -295,9 +291,7 @@ impl Client {
             builder = builder.header("X-XSRF-TOKEN", token.as_str());
         }
 
-        let req = builder
-            .body(Full::new(payload))
-            .expect("build request");
+        let req = builder.body(Full::new(payload)).expect("build request");
         let resp = tokio::time::timeout(Duration::from_secs(10), sender.send_request(req))
             .await
             .expect("send_request timeout")
@@ -577,9 +571,13 @@ async fn password_reset_over_http_with_anti_enumeration() {
             json!({ "email": "ada@x.com", "password": "oldpass1!" }),
         )
         .await;
-    assert_eq!(resp.status, 422, "old password must be rejected after reset");
+    assert_eq!(
+        resp.status, 422,
+        "old password must be rejected after reset"
+    );
     assert!(
-        resp.body.contains("These credentials do not match our records."),
+        resp.body
+            .contains("These credentials do not match our records."),
         "rejection rides the validation envelope: {}",
         resp.body
     );
@@ -810,8 +808,7 @@ async fn inertia_submissions_render_errors_and_303_redirects() {
     let page: Value = serde_json::from_str(&resp.body).expect("an Inertia page object");
     assert_eq!(page["component"], "auth/Login", "page: {}", resp.body);
     assert_eq!(
-        page["props"]["errors"]["email"][0],
-        "These credentials do not match our records.",
+        page["props"]["errors"]["email"][0], "These credentials do not match our records.",
         "flat field->messages errors prop: {}",
         resp.body
     );
@@ -823,7 +820,10 @@ async fn inertia_submissions_render_errors_and_303_redirects() {
             json!({ "email": "inertia@x.com", "password": "wrong" }),
         )
         .await;
-    assert_eq!(resp.status, 422, "non-Inertia clients keep the 422 envelope");
+    assert_eq!(
+        resp.status, 422,
+        "non-Inertia clients keep the 422 envelope"
+    );
 
     // A successful Inertia POST keeps the browser-default 302 (the 303
     // upgrade is scoped to the verbs a browser would otherwise replay).
@@ -879,12 +879,15 @@ async fn inertia_submissions_render_errors_and_303_redirects() {
             }),
         )
         .await;
-    assert_eq!(resp.status, 200, "Inertia failure re-renders: {}", resp.body);
+    assert_eq!(
+        resp.status, 200,
+        "Inertia failure re-renders: {}",
+        resp.body
+    );
     let page: Value = serde_json::from_str(&resp.body).expect("an Inertia page object");
     assert_eq!(page["component"], "Profile", "page: {}", resp.body);
     assert_eq!(
-        page["props"]["errors"]["current_password"][0],
-        "The current password is incorrect.",
+        page["props"]["errors"]["current_password"][0], "The current password is incorrect.",
         "errors prop pins the field: {}",
         resp.body
     );
@@ -907,7 +910,11 @@ async fn branding_statics_resolve_at_web_root() {
     let mut client = Client::new(addr);
 
     let icon = client.get("/favicon.ico").await;
-    assert_eq!(icon.status, 200, "GET /favicon.ico must serve: {}", icon.body);
+    assert_eq!(
+        icon.status, 200,
+        "GET /favicon.ico must serve: {}",
+        icon.body
+    );
     assert_eq!(
         icon.headers.get("content-type").map(String::as_str),
         Some("image/x-icon")

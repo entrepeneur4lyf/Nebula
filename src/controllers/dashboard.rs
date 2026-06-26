@@ -3,8 +3,8 @@
 //! Renders the post-login landing page with the currently authenticated
 //! user's basic profile data.
 
-use suprnova::{handler, inertia_response, Auth, FrameworkError, InertiaProps, Request, Response};
 use serde::Serialize;
+use suprnova::{Auth, FrameworkError, InertiaProps, Request, Response, handler, inertia_response};
 
 use crate::models::user::User;
 

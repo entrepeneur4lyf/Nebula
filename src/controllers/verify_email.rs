@@ -18,8 +18,8 @@
 
 use suprnova::auth_flows::EmailVerification;
 use suprnova::{
-    handler, inertia_response, redirect, Auth, FrameworkError, InertiaProps, MustVerifyEmail,
-    Request, Response,
+    Auth, FrameworkError, InertiaProps, MustVerifyEmail, Request, Response, handler,
+    inertia_response, redirect,
 };
 
 use crate::models::user::User;

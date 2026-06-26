@@ -7,8 +7,8 @@ pub mod static_files;
 pub mod verify_email;
 
 use suprnova::{
-    serde_json, FormRequest, FrameworkError, HttpResponse, InertiaRequestExt, Request,
-    ValidationErrors,
+    FormRequest, FrameworkError, HttpResponse, InertiaRequestExt, Request, ValidationErrors,
+    serde_json,
 };
 
 /// The app's external base URL (for building emailed links). `APP_URL` or the dev default.

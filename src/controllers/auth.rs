@@ -12,11 +12,11 @@ use std::sync::Arc;
 
 use serde::Deserialize;
 use suprnova::{
-    handler, inertia_response, redirect, Auth, Credentials, FormRequest, InertiaProps, Request,
-    Response, Validate, ValidationErrors,
+    Auth, Credentials, FormRequest, InertiaProps, Request, Response, Validate, ValidationErrors,
+    handler, inertia_response, redirect,
 };
 
-use crate::controllers::{errors_json, inertia_form, validation_failure, FormFailure, InertiaCtx};
+use crate::controllers::{FormFailure, InertiaCtx, errors_json, inertia_form, validation_failure};
 use crate::models::user::User;
 
 // ============================================================================
@@ -162,8 +162,7 @@ pub async fn register(req: Request) -> Response {
     // 500 registration. We log and continue — the user lands on the verified
     // gate at `/verify-email` and can resend from there.
     let base = format!("{}/verify-email/verify", crate::controllers::app_url());
-    if let Err(err) =
-        suprnova::auth_flows::EmailVerification::send_link(user.as_ref(), &base).await
+    if let Err(err) = suprnova::auth_flows::EmailVerification::send_link(user.as_ref(), &base).await
     {
         tracing::warn!(error = %err, "failed to send verification email on registration");
     }

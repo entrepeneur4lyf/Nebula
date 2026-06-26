@@ -13,7 +13,11 @@ impl MigrationTrait for Migration {
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager
-            .drop_table(Table::drop().table(Alias::new("auth_flow_tokens")).to_owned())
+            .drop_table(
+                Table::drop()
+                    .table(Alias::new("auth_flow_tokens"))
+                    .to_owned(),
+            )
             .await
     }
 }

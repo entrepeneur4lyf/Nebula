@@ -10,7 +10,7 @@
 //! Rust server in both modes, with Vite only supplying JS/CSS via absolute
 //! dev-server URLs.
 
-use suprnova::{handler, public_path, HttpResponse, Request, Response};
+use suprnova::{HttpResponse, Request, Response, handler, public_path};
 
 /// Content type for a whitelisted root-level public file.
 ///
@@ -42,8 +42,10 @@ pub async fn serve(req: Request) -> Response {
     };
 
     match tokio::fs::read(public_path(file)).await {
-        Ok(bytes) => Ok(HttpResponse::bytes_body(bytes, mime)
-            .header("Cache-Control", "public, max-age=86400")),
+        Ok(bytes) => {
+            Ok(HttpResponse::bytes_body(bytes, mime)
+                .header("Cache-Control", "public, max-age=86400"))
+        }
         Err(e) => {
             tracing::warn!(file, error = %e, "whitelisted public asset could not be read");
             Ok(HttpResponse::text("Not Found").status(404))

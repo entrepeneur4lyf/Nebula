@@ -54,9 +54,7 @@ use suprnova::auth_flows::{EmailVerification, PasswordReset};
 use suprnova::mail::{Mail, MailFake};
 use suprnova::session::driver::database::DatabaseSessionDriver;
 use suprnova::session::{SessionData, SessionStore};
-use suprnova::{
-    App, Auth, AuthManager, Authenticatable, EloquentUserProvider, MustVerifyEmail,
-};
+use suprnova::{App, Auth, AuthManager, Authenticatable, EloquentUserProvider, MustVerifyEmail};
 
 use nebula::migrations::Migrator;
 use nebula::models::user::User;
@@ -219,9 +217,12 @@ async fn resend_sends_a_fresh_link_and_is_silent_for_unknown() {
     // Unknown email → anti-enumeration: nothing sent, still Ok.
     {
         let fake = Mail::fake();
-        EmailVerification::resend("nobody@nebula.test", "http://nebula.test/verify-email/verify")
-            .await
-            .expect("resend unknown returns Ok (no leak)");
+        EmailVerification::resend(
+            "nobody@nebula.test",
+            "http://nebula.test/verify-email/verify",
+        )
+        .await
+        .expect("resend unknown returns Ok (no leak)");
         assert_eq!(
             fake.count(),
             0,
@@ -376,7 +377,8 @@ async fn profile_email_change_reverifies_and_password_and_delete_logic() {
         "a wrong current password must NOT verify (controller → 422)"
     );
     assert!(
-        user.verify_password("oldpass1!").expect("verify right current"),
+        user.verify_password("oldpass1!")
+            .expect("verify right current"),
         "the correct current password verifies (controller → rotate)"
     );
 

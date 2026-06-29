@@ -175,6 +175,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
+name = "apple"
+version = "0.3.1"
+source = "git+https://github.com/entrepeneur4lyf/suprnova-apple-rs.git?tag=v0.3.1#bc969e97400663702c97381504b1d597d238b1a8"
+dependencies = [
+ "base64 0.22.1",
+ "futures",
+ "jsonwebtoken",
+ "p256",
+ "pem",
+ "rand 0.9.4",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "url",
+]
+
+[[package]]
 name = "arc-swap"
 version = "1.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6324,11 +6341,12 @@ dependencies = [
 
 [[package]]
 name = "suprnova"
-version = "0.2.0"
-source = "git+https://github.com/entrepeneur4lyf/suprnova.git#2718cdfc1af8be460d0a4238f8f57d073d4f1f75"
+version = "0.5.6"
+source = "git+https://github.com/entrepeneur4lyf/suprnova.git?tag=v0.5.6#a546b3315dd9a5e9983da14fca956c45ccfe245e"
 dependencies = [
  "aes-gcm",
  "ammonia",
+ "apple",
  "argon2",
  "async-stream",
  "async-trait",
@@ -6414,8 +6432,8 @@ dependencies = [
 
 [[package]]
 name = "suprnova-macros"
-version = "0.2.0"
-source = "git+https://github.com/entrepeneur4lyf/suprnova.git#2718cdfc1af8be460d0a4238f8f57d073d4f1f75"
+version = "0.5.6"
+source = "git+https://github.com/entrepeneur4lyf/suprnova.git?tag=v0.5.6#a546b3315dd9a5e9983da14fca956c45ccfe245e"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6427,8 +6445,8 @@ dependencies = [
 
 [[package]]
 name = "suprnova-web-push"
-version = "0.2.0"
-source = "git+https://github.com/entrepeneur4lyf/suprnova.git#2718cdfc1af8be460d0a4238f8f57d073d4f1f75"
+version = "0.5.6"
+source = "git+https://github.com/entrepeneur4lyf/suprnova.git?tag=v0.5.6#a546b3315dd9a5e9983da14fca956c45ccfe245e"
 dependencies = [
  "base64 0.22.1",
  "chrono",

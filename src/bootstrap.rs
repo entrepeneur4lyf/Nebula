@@ -113,7 +113,8 @@ pub async fn register() {
     // `InertiaConfig` (static version "1.0"), so install with that same
     // default. If you wire a real asset version (e.g. a build hash), set
     // it both here and on every response's config.
-    Inertia::install(&InertiaConfig::new());
+    Inertia::install(&InertiaConfig::new())
+        .expect("Inertia install failed — in production this fails closed when the frontend manifest has not been built");
 
     // Share the authenticated user (`auth.user`) on every Inertia
     // response so the layout can render the user menu without each

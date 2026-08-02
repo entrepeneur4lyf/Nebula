@@ -117,9 +117,16 @@ pub(crate) async fn inertia_form<T: FormRequest>(req: Request) -> Result<T, Form
 }
 
 /// Flatten a [`ValidationErrors`] bag into the `{ field: [messages] }` JSON
-/// the Inertia client merges into `useForm().errors`.
+/// the Inertia client merges into `useForm().errors`. Messages render
+/// through `messages_for`, so keyed messages become locale-aware text —
+/// the same rendering the framework's own 422 envelope applies.
 pub(crate) fn errors_json(errors: &ValidationErrors) -> serde_json::Value {
-    serde_json::json!(errors.errors)
+    let map: serde_json::Map<String, serde_json::Value> = errors
+        .errors
+        .keys()
+        .map(|field| (field.clone(), serde_json::json!(errors.messages_for(field))))
+        .collect();
+    serde_json::Value::Object(map)
 }
 
 /// The non-Inertia delivery for a validation failure: the standard 422
